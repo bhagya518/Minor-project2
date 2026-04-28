@@ -1,0 +1,13 @@
+Project Final Statistics
+========================
+
+Test set size: 2000
+Accuracy (RF on test): 0.8500
+F1-score (RF on test): 0.0000
+Slashed count (test mitigation): 0
+
+Benchmark TPS
+Scenario A TPS: 50.00
+Scenario B TPS: 5000.00
+Scenario C TPS: 27472.53
+TPS improvement (C vs A): 54845.05%

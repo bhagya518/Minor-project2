@@ -1,0 +1,1263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Decentralized Website Monitoring — System Architecture</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg:        #0a0d14;
+    --surface:   #111520;
+    --surface2:  #161b2e;
+    --border:    #1e2a45;
+    --blue:      #2d7ef7;
+    --blue-dim:  #1a3d7a;
+    --cyan:      #00d4cc;
+    --green:     #00c97a;
+    --orange:    #f59e0b;
+    --red:       #ef4444;
+    --purple:    #a855f7;
+    --text:      #e2e8f0;
+    --muted:     #64748b;
+    --mono:      'JetBrains Mono', monospace;
+    --sans:      'Syne', sans-serif;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 40px 24px;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    text-align: center;
+    margin-bottom: 48px;
+  }
+  .header .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--cyan);
+    background: rgba(0,212,204,0.08);
+    border: 1px solid rgba(0,212,204,0.2);
+    padding: 4px 14px;
+    border-radius: 2px;
+    margin-bottom: 16px;
+  }
+  .header h1 {
+    font-size: clamp(22px, 3vw, 36px);
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.5px;
+    margin-bottom: 8px;
+  }
+  .header p {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  /* ── LAYOUT ── */
+  .arch {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  /* ── PHASE LABEL ── */
+  .phase-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    padding: 0 0 6px 4px;
+    margin-top: 18px;
+  }
+
+  /* ── ARROW ── */
+  .arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 36px;
+    position: relative;
+  }
+  .arrow::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 2px;
+    height: 100%;
+    background: linear-gradient(to bottom, var(--border), var(--blue-dim));
+  }
+  .arrow-icon {
+    width: 22px;
+    height: 22px;
+    background: var(--surface2);
+    border: 1px solid var(--blue-dim);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: var(--blue);
+    z-index: 1;
+  }
+  .arrow-label {
+    position: absolute;
+    left: calc(50% + 18px);
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  /* ── BOX ── */
+  .box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+  }
+  .box::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+  }
+  .box.blue::before   { background: var(--blue); }
+  .box.cyan::before   { background: var(--cyan); }
+  .box.green::before  { background: var(--green); }
+  .box.orange::before { background: var(--orange); }
+  .box.red::before    { background: var(--red); }
+  .box.purple::before { background: var(--purple); }
+
+  .box-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 18px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .box-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    flex-shrink: 0;
+  }
+  .box.blue   .box-icon { background: rgba(45,126,247,0.12); }
+  .box.cyan   .box-icon { background: rgba(0,212,204,0.12); }
+  .box.green  .box-icon { background: rgba(0,201,122,0.12); }
+  .box.orange .box-icon { background: rgba(245,158,11,0.12); }
+  .box.red    .box-icon { background: rgba(239,68,68,0.12); }
+  .box.purple .box-icon { background: rgba(168,85,247,0.12); }
+
+  .box-title {
+    flex: 1;
+  }
+  .box-title h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 2px;
+  }
+  .box-title .subtitle {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .step-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 3px;
+    letter-spacing: 1px;
+  }
+  .box.blue   .step-badge { background: rgba(45,126,247,0.15); color: var(--blue); }
+  .box.cyan   .step-badge { background: rgba(0,212,204,0.15);  color: var(--cyan); }
+  .box.green  .step-badge { background: rgba(0,201,122,0.15);  color: var(--green); }
+  .box.orange .step-badge { background: rgba(245,158,11,0.15); color: var(--orange); }
+  .box.red    .step-badge { background: rgba(239,68,68,0.15);  color: var(--red); }
+  .box.purple .step-badge { background: rgba(168,85,247,0.15); color: var(--purple); }
+
+  .box-body {
+    padding: 14px 18px;
+  }
+
+  /* ── GRID LAYOUTS ── */
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+
+  /* ── ITEM CARD ── */
+  .item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .item .item-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+  }
+  .item .item-desc {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  /* ── NODE GRID ── */
+  .node-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .node-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 8px 6px;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 10px;
+  }
+  .node-card .node-id {
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 3px;
+  }
+  .node-card .node-addr {
+    color: var(--muted);
+    font-size: 9px;
+    margin-bottom: 4px;
+  }
+  .node-card .node-type {
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+  }
+  .node-card.honest .node-type  { background: rgba(0,201,122,0.15); color: var(--green); }
+  .node-card.bad    .node-type  { background: rgba(239,68,68,0.15);  color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
+  .node-card.bad { border-color: rgba(239,68,68,0.25); }
+
+  /* ── METRIC PILL ── */
+  .metric-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .metric {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 9px;
+    border-radius: 3px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--cyan);
+  }
+
+  /* ── ML PIPELINE ── */
+  .ml-row {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+    align-items: center;
+    gap: 8px;
+  }
+  .ml-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 10px;
+    text-align: center;
+  }
+  .ml-box .ml-name {
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 3px;
+  }
+  .ml-box .ml-type {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .ml-box .ml-badge {
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 2px 7px;
+    border-radius: 3px;
+  }
+  .ml-arrow {
+    color: var(--muted);
+    font-size: 18px;
+    text-align: center;
+  }
+  .ml-meta {
+    background: rgba(45,126,247,0.08);
+    border: 1px solid rgba(45,126,247,0.25);
+  }
+  .ml-meta .ml-name { color: var(--blue); }
+
+  /* ── ACTION BADGES ── */
+  .action-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .action-card {
+    border-radius: 6px;
+    padding: 12px 10px;
+    text-align: center;
+    border: 1px solid;
+  }
+  .action-card .action-name {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .action-card .action-rep {
+    font-family: var(--mono);
+    font-size: 10px;
+    margin-bottom: 4px;
+  }
+  .action-card .action-desc {
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .action-card.allow  { background: rgba(0,201,122,0.08);  border-color: rgba(0,201,122,0.3);  }
+  .action-card.warn   { background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.3); }
+  .action-card.quarantine { background: rgba(239,68,68,0.06); border-color: rgba(239,68,68,0.25); }
+  .action-card.slash  { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.4);  }
+  .action-card.allow  .action-name { color: var(--green); }
+  .action-card.warn   .action-name { color: var(--orange); }
+  .action-card.quarantine .action-name { color: #f87171; }
+  .action-card.slash  .action-name { color: var(--red); }
+  .action-card.allow  .action-rep  { color: var(--green); }
+  .action-card.warn   .action-rep  { color: var(--orange); }
+  .action-card.quarantine .action-rep { color: #f87171; }
+  .action-card.slash  .action-rep  { color: var(--red); }
+
+  /* ── CONSENSUS ── */
+  .consensus-row {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 12px;
+    align-items: center;
+  }
+  .consensus-side {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+  }
+  .consensus-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    margin-bottom: 6px;
+    letter-spacing: 1px;
+  }
+  .consensus-value {
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .vote-bar {
+    display: flex;
+    gap: 3px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .vote-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+  }
+  .vote-dot.up   { background: rgba(0,201,122,0.2);  color: var(--green); }
+  .vote-dot.down { background: rgba(239,68,68,0.2);  color: var(--red); }
+  .vote-dot.excluded { background: rgba(100,116,139,0.2); color: var(--muted); }
+
+  /* ── BLOCKCHAIN ── */
+  .tx-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    font-family: var(--mono);
+  }
+  .tx-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+  }
+  .tx-row:last-child { border-bottom: none; }
+  .tx-key { color: var(--muted); }
+  .tx-val { color: var(--cyan); font-size: 10px; }
+  .tx-val.green { color: var(--green); }
+  .tx-val.red   { color: var(--red); }
+
+  /* ── OUTPUT FINAL ── */
+  .output-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .output-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+  }
+  .output-card h4 {
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: #fff;
+  }
+  .output-field {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    border-bottom: 1px solid var(--border);
+  }
+  .output-field:last-child { border-bottom: none; }
+  .output-field .k { color: var(--muted); }
+  .output-field .v { font-weight: 600; }
+  .v.up     { color: var(--green); }
+  .v.down   { color: var(--red); }
+  .v.blue   { color: var(--blue); }
+  .v.cyan   { color: var(--cyan); }
+  .v.orange { color: var(--orange); }
+
+  /* ── WEBSITE TARGET ── */
+  .website-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .website-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .website-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .website-dot.green  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .website-dot.orange { background: var(--orange); box-shadow: 0 0 6px var(--orange); }
+  .website-url {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+  }
+  .website-type {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  /* ── FEATURE LIST ── */
+  .feature-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .feature-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--muted);
+    padding: 6px 8px;
+    background: var(--surface2);
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+  .feature-num {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--blue);
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  /* ── GETH NODES ── */
+  .geth-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+  .geth-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    text-align: center;
+  }
+  .geth-card .g-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 4px;
+  }
+  .geth-card .g-sub {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .geth-card .g-port {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--purple);
+    background: rgba(168,85,247,0.1);
+    padding: 2px 6px;
+    border-radius: 3px;
+    display: inline-block;
+  }
+
+  /* ── DASHBOARD ── */
+  .dash-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .dash-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    text-align: center;
+  }
+  .dash-card .d-icon { font-size: 22px; margin-bottom: 6px; }
+  .dash-card .d-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 4px;
+  }
+  .dash-card .d-desc {
+    font-size: 10px;
+    color: var(--muted);
+    font-family: var(--mono);
+  }
+
+  /* ── INFO ROW ── */
+  .info-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+  .info-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+  }
+  .info-badge span { margin-right: 4px; }
+
+  @media (max-width: 700px) {
+    .grid2, .grid3, .grid4,
+    .node-grid, .ml-row,
+    .action-row, .consensus-row,
+    .output-grid, .website-grid,
+    .feature-grid, .geth-row, .dash-grid {
+      grid-template-columns: 1fr;
+    }
+    .ml-row { display: flex; flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="tag">SYSTEM ARCHITECTURE</div>
+  <h1>Decentralized Website Monitoring</h1>
+  <p>Blockchain + ML Reputation + Consensus · 6th Semester Minor Project</p>
+</div>
+
+<div class="arch">
+
+  <!-- ════════════════════════════════════════ -->
+  <!-- PHASE 0 — TARGET WEBSITES               -->
+  <!-- ════════════════════════════════════════ -->
+  <div class="phase-label" style="color:var(--cyan)">● PHASE 0 — TARGET WEBSITES (WHAT WE MONITOR)</div>
+
+  <div class="box cyan">
+    <div class="box-header">
+      <div class="box-icon">🌐</div>
+      <div class="box-title">
+        <h3>Target Websites</h3>
+        <div class="subtitle">Any website URL you want to monitor — registered in smart contract</div>
+      </div>
+      <div class="step-badge">INPUT</div>
+    </div>
+    <div class="box-body">
+      <div class="website-grid">
+        <div class="website-card">
+          <div class="website-dot green"></div>
+          <div>
+            <div class="website-url">https://example.com</div>
+            <div class="website-type">Test / Demo Website</div>
+          </div>
+        </div>
+        <div class="website-card">
+          <div class="website-dot green"></div>
+          <div>
+            <div class="website-url">https://yourcollege.edu</div>
+            <div class="website-type">College Website</div>
+          </div>
+        </div>
+        <div class="website-card">
+          <div class="website-dot orange"></div>
+          <div>
+            <div class="website-url">https://httpstat.us/503</div>
+            <div class="website-type">Simulated DOWN site</div>
+          </div>
+        </div>
+      </div>
+      <div class="info-row">
+        <div class="info-badge"><span>📌</span>URLs stored in smart contract at deploy time</div>
+        <div class="info-badge"><span>⏱</span>Each node checks every 60 seconds</div>
+        <div class="info-badge"><span>🔑</span>httpstat.us/503 always returns DOWN — used to test if nodes detect it</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-icon">↓</div><div class="arrow-label">URLs passed to all monitoring nodes</div></div>
+
+  <!-- ════════════════════════════════════════ -->
+  <!-- PHASE 1 — GETH BLOCKCHAIN LAYER         -->
+  <!-- ════════════════════════════════════════ -->
+  <div class="phase-label" style="color:var(--purple)">● PHASE 1 — GETH PRIVATE BLOCKCHAIN NETWORK (4 LAPTOPS)</div>
+
+  <div class="box purple">
+    <div class="box-header">
+      <div class="box-icon">⛓</div>
+      <div class="box-title">
+        <h3>Geth Private Ethereum Network</h3>
+        <div class="subtitle">4 laptops · chainId 7777 · same genesis.json · connected via LAN/WiFi</div>
+      </div>
+      <div class="step-badge">LAYER 1</div>
+    </div>
+    <div class="box-body">
+      <div class="geth-row">
+        <div class="geth-card">
+          <div class="g-title">Laptop 1</div>
+          <div class="g-sub">BOOTNODE · Deploys Contract<br>Runs ML Pipeline</div>
+          <div class="g-port">port 30303</div>
+        </div>
+        <div class="geth-card">
+          <div class="g-title">Laptop 2</div>
+          <div class="g-sub">Peer Node<br>Runs Nodes 6–10</div>
+          <div class="g-port">port 30304</div>
+        </div>
+        <div class="geth-card">
+          <div class="g-title">Laptop 3</div>
+          <div class="g-sub">Peer Node<br>React Dashboard</div>
+          <div class="g-port">port 30305</div>
+        </div>
+        <div class="geth-card">
+          <div class="g-title">Laptop 4</div>
+          <div class="g-sub">Peer Node<br>Runs Malicious Nodes</div>
+          <div class="g-port">port 30306</div>
+        </div>
+      </div>
+      <div class="info-row">
+        <div class="info-badge"><span>📄</span>WebsiteMonitor.sol deployed on this network</div>
+        <div class="info-badge"><span>🔗</span>All laptops share same chain state</div>
+        <div class="info-badge"><span>⛏</span>Laptop 1 mines free ETH for gas fees</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-icon">↓</div><div class="arrow-label">20 Python monitoring agents connect to Geth via Web3.py (HTTP RPC)</div></div>
+
+  <!-- ════════════════════════════════════════ -->
+  <!-- PHASE 2 — 20 MONITORING NODES           -->
+  <!-- ════════════════════════════════════════ -->
+  <div class="phase-label" style="color:var(--blue)">● PHASE 2 — 20 MONITORING NODES (PYTHON THREADS)</div>
+
+  <div class="box blue">
+    <div class="box-header">
+      <div class="box-icon">🖥</div>
+      <div class="box-title">
+        <h3>20 Monitoring Nodes</h3>
+        <div class="subtitle">Each is a Python thread · unique Geth wallet address · checks websites every 60s</div>
+      </div>
+      <div class="step-badge">STEP 1</div>
+    </div>
+    <div class="box-body">
+      <div class="node-grid">
+        <div class="node-card honest"><div class="node-id">Node 01</div><div class="node-addr">0xA1B2...C3D4</div><div class="node-type">HONEST</div></div>
+        <div class="node-card honest"><div class="node-id">Node 02</div><div class="node-addr">0xE5F6...G7H8</div><div class="node-type">HONEST</div></div>
+        <div class="node-card honest"><div class="node-id">Node 03</div><div class="node-addr">0xI9J0...K1L2</div><div class="node-type">HONEST</div></div>
+        <div class="node-card honest"><div class="node-id">Node 04</div><div class="node-addr">0xM3N4...O5P6</div><div class="node-type">HONEST</div></div>
+        <div class="node-card honest"><div class="node-id">Node 05</div><div class="node-addr">0xQ7R8...S9T0</div><div class="node-type">HONEST</div></div>
+        <div class="node-card honest"><div class="node-id">Node 06</div><div class="node-addr">0xU1V2...W3X4</div><div class="node-type">HONEST</div></div>
+        <div class="node-card honest"><div class="node-id">Node 07</div><div class="node-addr">0xY5Z6...A7B8</div><div class="node-type">HONEST</div></div>
+        <div class="node-card honest"><div class="node-id">Node 08</div><div class="node-addr">0xC9D0...E1F2</div><div class="node-type">HONEST</div></div>
+        <div class="node-card honest"><div class="node-id">Node 09</div><div class="node-addr">0xG3H4...I5J6</div><div class="node-type">HONEST</div></div>
+        <div class="node-card honest"><div class="node-id">Node 10</div><div class="node-addr">0xK7L8...M9N0</div><div class="node-type">HONEST</div></div>
+        <div class="node-card honest"><div class="node-id">Node 11</div><div class="node-addr">0xO1P2...Q3R4</div><div class="node-type">HONEST</div></div>
+        <div class="node-card honest"><div class="node-id">Node 12</div><div class="node-addr">0xS5T6...U7V8</div><div class="node-type">HONEST</div></div>
+        <div class="node-card honest"><div class="node-id">Node 13</div><div class="node-addr">0xW9X0...Y1Z2</div><div class="node-type">HONEST</div></div>
+        <div class="node-card honest"><div class="node-id">Node 14</div><div class="node-addr">0xA3B4...C5D6</div><div class="node-type">HONEST</div></div>
+        <div class="node-card honest"><div class="node-id">Node 15</div><div class="node-addr">0xE7F8...G9H0</div><div class="node-type">HONEST</div></div>
+        <div class="node-card honest"><div class="node-id">Node 16</div><div class="node-addr">0xI1J2...K3L4</div><div class="node-type">HONEST</div></div>
+        <div class="node-card bad"><div class="node-id">Node 17</div><div class="node-addr">0xM5N6...O7P8</div><div class="node-type">FALSE REPORT</div></div>
+        <div class="node-card bad"><div class="node-id">Node 18</div><div class="node-addr">0xQ9R0...S1T2</div><div class="node-type">LAZY NODE</div></div>
+        <div class="node-card bad"><div class="node-id">Node 19</div><div class="node-addr">0xU3V4...W5X6</div><div class="node-type">COLLUDING</div></div>
+        <div class="node-card bad"><div class="node-id">Node 20</div><div class="node-addr">0xY7Z8...A9B0</div><div class="node-type">INFLATE RT</div></div>
+      </div>
+      <div class="info-row">
+        <div class="info-badge"><span style="color:var(--green)">●</span> 16 Honest Nodes — report truthfully</div>
+        <div class="info-badge"><span style="color:var(--red)">●</span> 4 Malicious Nodes — ML must detect these</div>
+        <div class="info-badge"><span>🔑</span>Each node signs reports with its Geth private key</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-icon">↓</div><div class="arrow-label">Each node independently checks every website</div></div>
+
+  <!-- ════════════════════════════════════════ -->
+  <!-- PHASE 3 — METRICS COLLECTION            -->
+  <!-- ════════════════════════════════════════ -->
+  <div class="phase-label" style="color:var(--cyan)">● PHASE 3 — WHAT EACH NODE MEASURES (METRICS)</div>
+
+  <div class="box cyan">
+    <div class="box-header">
+      <div class="box-icon">📡</div>
+      <div class="box-title">
+        <h3>Website Metrics Collected per Node per Check</h3>
+        <div class="subtitle">Every node runs these 5 checks independently on every website</div>
+      </div>
+      <div class="step-badge">STEP 2</div>
+    </div>
+    <div class="box-body">
+      <div class="grid3" style="gap:8px">
+        <div class="item">
+          <div class="item-label" style="color:var(--green)">✅ Uptime Check</div>
+          <div class="item-desc">HTTP GET request → Status 200 = UP, timeout/error = DOWN. Response recorded in ms.</div>
+        </div>
+        <div class="item">
+          <div class="item-label" style="color:var(--cyan)">⚡ Response Time</div>
+          <div class="item-desc">Time from sending request to receiving first byte. Measured in milliseconds per node.</div>
+        </div>
+        <div class="item">
+          <div class="item-label" style="color:var(--blue)">🔒 SSL Certificate</div>
+          <div class="item-desc">Socket handshake to port 443. Checks if HTTPS certificate is valid and not expired.</div>
+        </div>
+        <div class="item">
+          <div class="item-label" style="color:var(--purple)">🔍 Content Integrity</div>
+          <div class="item-desc">MD5 hash of full page HTML. If hash changes from baseline → possible defacement detected.</div>
+        </div>
+        <div class="item">
+          <div class="item-label" style="color:var(--orange)">🌍 HTTP Status Code</div>
+          <div class="item-desc">Full HTTP code recorded — 200, 301, 403, 503 etc. Stored along with UP/DOWN verdict.</div>
+        </div>
+        <div class="item">
+          <div class="item-label" style="color:var(--muted)">🕐 Submit Timestamp</div>
+          <div class="item-desc">Time gap between check and blockchain submission. High latency = colluding node signal.</div>
+        </div>
+      </div>
+      <div class="metric-row">
+        <div class="metric">status: UP/DOWN</div>
+        <div class="metric">response_time: 187ms</div>
+        <div class="metric">ssl_valid: true</div>
+        <div class="metric">content_hash: "a3f9..."</div>
+        <div class="metric">http_code: 200</div>
+        <div class="metric">submit_latency: 2.1s</div>
+        <div class="metric">node_address: 0xA1B2...</div>
+        <div class="metric">timestamp: 1710234567</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-icon">↓</div><div class="arrow-label">Raw report signed and submitted to WebsiteMonitor.sol on Geth</div></div>
+
+  <!-- ════════════════════════════════════════ -->
+  <!-- PHASE 4 — SMART CONTRACT                -->
+  <!-- ════════════════════════════════════════ -->
+  <div class="phase-label" style="color:var(--purple)">● PHASE 4 — SMART CONTRACT STORES ALL REPORTS</div>
+
+  <div class="box purple">
+    <div class="box-header">
+      <div class="box-icon">📜</div>
+      <div class="box-title">
+        <h3>WebsiteMonitor.sol — Smart Contract (Solidity)</h3>
+        <div class="subtitle">Deployed on Geth private network · stores every report immutably · cannot be edited or deleted</div>
+      </div>
+      <div class="step-badge">STEP 3</div>
+    </div>
+    <div class="box-body">
+      <div class="grid3" style="gap:8px">
+        <div class="item">
+          <div class="item-label" style="color:var(--purple)">submitReport()</div>
+          <div class="item-desc">Called by each node. Stores url, status, response_time, ssl_valid, content_hash, node address.</div>
+        </div>
+        <div class="item">
+          <div class="item-label" style="color:var(--purple)">updateReputation()</div>
+          <div class="item-desc">Called by ML pipeline. Updates node's reputation score and ALLOW/WARN/QUARANTINE/SLASH action.</div>
+        </div>
+        <div class="item">
+          <div class="item-label" style="color:var(--purple)">recordConsensus()</div>
+          <div class="item-desc">Stores final website verdict — UP/DOWN, confidence %, votes count, avg response time.</div>
+        </div>
+        <div class="item">
+          <div class="item-label" style="color:var(--red)">slashNode()</div>
+          <div class="item-desc">Called when ML detects malicious node. Sets reputation to 0, marks as slashed, emits event.</div>
+        </div>
+        <div class="item">
+          <div class="item-label" style="color:var(--green)">getWebsiteHistory()</div>
+          <div class="item-desc">Returns full immutable history of all reports for a URL. Dashboard reads this to show timeline.</div>
+        </div>
+        <div class="item">
+          <div class="item-label" style="color:var(--cyan)">getNodeReputation()</div>
+          <div class="item-desc">Returns current reputation score and action status for any node address. Dashboard displays this.</div>
+        </div>
+      </div>
+      <div class="info-row">
+        <div class="info-badge"><span>📦</span>All 20 nodes × 3 websites × every 60s = ~60 transactions/min on Geth</div>
+        <div class="info-badge"><span>🔐</span>Each tx has unique hash — permanent tamper-proof evidence</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-icon">↓</div><div class="arrow-label">After every epoch (5 min) — ML pipeline reads all reports from contract</div></div>
+
+  <!-- ════════════════════════════════════════ -->
+  <!-- PHASE 5 — FEATURE ENGINEERING           -->
+  <!-- ════════════════════════════════════════ -->
+  <div class="phase-label" style="color:var(--orange)">● PHASE 5 — FEATURE ENGINEERING (WHAT ML LOOKS AT PER NODE)</div>
+
+  <div class="box orange">
+    <div class="box-header">
+      <div class="box-icon">🔬</div>
+      <div class="box-title">
+        <h3>Feature Extraction — 20 Features per Node</h3>
+        <div class="subtitle">Raw reports → calculated behavior features → input to ML models</div>
+      </div>
+      <div class="step-badge">STEP 4</div>
+    </div>
+    <div class="box-body">
+      <div class="feature-grid">
+        <div class="feature-item"><div class="feature-num">F01</div><div>false_positive_rate — how often node says DOWN when site is actually UP</div></div>
+        <div class="feature-item"><div class="feature-num">F02</div><div>false_negative_rate — how often node says UP when site is actually DOWN</div></div>
+        <div class="feature-item"><div class="feature-num">F03</div><div>response_time_deviation — node's RT vs median of all other nodes</div></div>
+        <div class="feature-item"><div class="feature-num">F04</div><div>report_latency — time gap between check and blockchain submission</div></div>
+        <div class="feature-item"><div class="feature-num">F05</div><div>check_frequency — how many checks per hour this node submits</div></div>
+        <div class="feature-item"><div class="feature-num">F06</div><div>ssl_check_accuracy — did node correctly detect SSL issues?</div></div>
+        <div class="feature-item"><div class="feature-num">F07</div><div>content_hash_accuracy — did node detect page defacement correctly?</div></div>
+        <div class="feature-item"><div class="feature-num">F08</div><div>report_similarity_score — how similar is this node to node X?</div></div>
+        <div class="feature-item"><div class="feature-num">F09</div><div>geographic_agreement_rate — does node always agree with same cluster?</div></div>
+        <div class="feature-item"><div class="feature-num">F10</div><div>response_time_correlation — RT always correlated with another node?</div></div>
+        <div class="feature-item"><div class="feature-num">F11</div><div>pagerank_score — how central in the agreement network graph?</div></div>
+        <div class="feature-item"><div class="feature-num">F12</div><div>clustering_coefficient — tightly grouped with small set of nodes?</div></div>
+        <div class="feature-item"><div class="feature-num">F13</div><div>current_reputation_score — running EWMA from previous epochs</div></div>
+        <div class="feature-item"><div class="feature-num">F14</div><div>consecutive_wrong_reports — wrong reports in a row (3+ = danger)</div></div>
+        <div class="feature-item"><div class="feature-num">F15</div><div>slash_history — was this node ever slashed before? (0 or 1)</div></div>
+        <div class="feature-item"><div class="feature-num">F16</div><div>uptime_as_node — how long has this node been active?</div></div>
+        <div class="feature-item"><div class="feature-num">F17</div><div>total_reports_submitted — lifetime report count for this node</div></div>
+        <div class="feature-item"><div class="feature-num">F18</div><div>status_agreement_with_majority — agrees with majority verdict?</div></div>
+        <div class="feature-item"><div class="feature-num">F19</div><div>avg_http_code_accuracy — reports correct HTTP status codes?</div></div>
+        <div class="feature-item"><div class="feature-num">F20</div><div>in_degree / out_degree — graph connectivity in agreement network</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-icon">↓</div><div class="arrow-label">20 features × 20 nodes → Feature matrix (20×20) fed to ML models</div></div>
+
+  <!-- ════════════════════════════════════════ -->
+  <!-- PHASE 6 — ML PIPELINE                   -->
+  <!-- ════════════════════════════════════════ -->
+  <div class="phase-label" style="color:var(--blue)">● PHASE 6 — ML DETECTION PIPELINE</div>
+
+  <div class="box blue">
+    <div class="box-header">
+      <div class="box-icon">🤖</div>
+      <div class="box-title">
+        <h3>Three-Model ML Pipeline + Meta Learner</h3>
+        <div class="subtitle">3 detectors run in parallel → scores combined → Gradient Boosting final verdict</div>
+      </div>
+      <div class="step-badge">STEP 5</div>
+    </div>
+    <div class="box-body">
+      <div class="ml-row">
+        <div class="ml-box">
+          <div class="ml-name">Random Forest</div>
+          <div class="ml-type">SUPERVISED</div>
+          <div class="ml-badge" style="background:rgba(0,201,122,0.1);color:var(--green)">Trained on labeled data</div>
+          <div style="margin-top:8px;font-size:10px;color:var(--muted)">Detects known malicious patterns from F01–F10</div>
+        </div>
+        <div class="ml-arrow">+</div>
+        <div class="ml-box">
+          <div class="ml-name">Isolation Forest</div>
+          <div class="ml-type">UNSUPERVISED</div>
+          <div class="ml-badge" style="background:rgba(245,158,11,0.1);color:var(--orange)">No labels needed</div>
+          <div style="margin-top:8px;font-size:10px;color:var(--muted)">Detects anomalous behavior from F03,F04,F05</div>
+        </div>
+        <div class="ml-arrow">+</div>
+        <div class="ml-box">
+          <div class="ml-name">Graph Anomaly</div>
+          <div class="ml-type">NETWORK-BASED</div>
+          <div class="ml-badge" style="background:rgba(168,85,247,0.1);color:var(--purple)">Graph analysis</div>
+          <div style="margin-top:8px;font-size:10px;color:var(--muted)">Detects collusion rings from F11,F12,F08,F09</div>
+        </div>
+        <div class="ml-arrow">→</div>
+        <div class="ml-box ml-meta">
+          <div class="ml-name">Gradient Boosting</div>
+          <div class="ml-type">META LEARNER</div>
+          <div class="ml-badge" style="background:rgba(45,126,247,0.15);color:var(--blue)">Stacking ensemble</div>
+          <div style="margin-top:8px;font-size:10px;color:var(--muted)">Combines 3 outputs → malicious probability 0–1</div>
+        </div>
+      </div>
+      <div class="info-row">
+        <div class="info-badge"><span>📊</span>Output per node: malicious_probability (e.g. 0.89)</div>
+        <div class="info-badge"><span>🔴</span>Node 17 → 0.91 · Node 18 → 0.84 · Node 19 → 0.76 · Node 20 → 0.88</div>
+        <div class="info-badge"><span>🟢</span>Honest nodes → 0.05 to 0.15 malicious probability</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-icon">↓</div><div class="arrow-label">malicious_probability per node → Reputation Engine</div></div>
+
+  <!-- ════════════════════════════════════════ -->
+  <!-- PHASE 7 — REPUTATION ENGINE             -->
+  <!-- ════════════════════════════════════════ -->
+  <div class="phase-label" style="color:var(--orange)">● PHASE 7 — REPUTATION ENGINE + ACTION ASSIGNMENT</div>
+
+  <div class="box orange">
+    <div class="box-header">
+      <div class="box-icon">⚖️</div>
+      <div class="box-title">
+        <h3>Reputation Engine — Bayesian Update + EWMA Smoothing</h3>
+        <div class="subtitle">Updates trust score per node every epoch · assigns final action</div>
+      </div>
+      <div class="step-badge">STEP 6</div>
+    </div>
+    <div class="box-body">
+      <div class="grid2" style="gap:10px;margin-bottom:12px">
+        <div class="item">
+          <div class="item-label" style="color:var(--orange)">Bayesian Odds Update</div>
+          <div class="item-desc">
+            prior_odds = rep / (1 - rep)<br>
+            likelihood = (1 - mal_prob) / mal_prob<br>
+            posterior = prior × likelihood<br>
+            new_rep = posterior / (1 + posterior)
+          </div>
+        </div>
+        <div class="item">
+          <div class="item-label" style="color:var(--orange)">EWMA Smoothing (α = 0.9)</div>
+          <div class="item-desc">
+            smoothed = α × old_rep + (1-α) × new_rep<br>
+            α=0.9 → slow change → stable reputation<br>
+            Prevents sudden flip from single bad report<br>
+            Initialized at 0.95 for all nodes
+          </div>
+        </div>
+      </div>
+      <div class="action-row">
+        <div class="action-card allow">
+          <div class="action-name">ALLOW</div>
+          <div class="action-rep">rep ≥ 0.80</div>
+          <div class="action-desc">Trusted node. Vote counts with full weight in consensus.</div>
+        </div>
+        <div class="action-card warn">
+          <div class="action-name">WARN</div>
+          <div class="action-rep">rep ≥ 0.60</div>
+          <div class="action-desc">Suspicious. Vote counts at 50% weight. Monitored closely.</div>
+        </div>
+        <div class="action-card quarantine">
+          <div class="action-name">QUARANTINE</div>
+          <div class="action-rep">rep ≥ 0.40</div>
+          <div class="action-desc">Excluded from voting. Reputation recovery possible.</div>
+        </div>
+        <div class="action-card slash">
+          <div class="action-name">SLASH</div>
+          <div class="action-rep">rep &lt; 0.40</div>
+          <div class="action-desc">Permanently removed. Score → 0. Penalty −0.5 applied.</div>
+        </div>
+      </div>
+      <div class="info-row">
+        <div class="info-badge"><span>📡</span>Reputation scores written to blockchain via updateReputation()</div>
+        <div class="info-badge"><span>🔄</span>Runs every 5 minutes (epoch)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-icon">↓</div><div class="arrow-label">Only ALLOW nodes participate · WARN nodes at 50% weight · QUARANTINE + SLASH excluded</div></div>
+
+  <!-- ════════════════════════════════════════ -->
+  <!-- PHASE 8 — CONSENSUS                     -->
+  <!-- ════════════════════════════════════════ -->
+  <div class="phase-label" style="color:var(--green)">● PHASE 8 — CONSENSUS VOTE → FINAL WEBSITE VERDICT</div>
+
+  <div class="box green">
+    <div class="box-header">
+      <div class="box-icon">🗳</div>
+      <div class="box-title">
+        <h3>Reputation-Weighted Consensus Vote</h3>
+        <div class="subtitle">Only trusted nodes vote · majority + confidence calculated · final verdict produced</div>
+      </div>
+      <div class="step-badge">STEP 7</div>
+    </div>
+    <div class="box-body">
+      <div class="consensus-row">
+        <div class="consensus-side">
+          <div class="consensus-label">VOTING NODES (16 ALLOW + weighted WARN)</div>
+          <div class="consensus-value" style="color:var(--green); margin-bottom:8px">Nodes 01–16 vote</div>
+          <div class="vote-bar">
+            <div class="vote-dot up">↑</div><div class="vote-dot up">↑</div>
+            <div class="vote-dot up">↑</div><div class="vote-dot up">↑</div>
+            <div class="vote-dot up">↑</div><div class="vote-dot up">↑</div>
+            <div class="vote-dot up">↑</div><div class="vote-dot up">↑</div>
+            <div class="vote-dot up">↑</div><div class="vote-dot up">↑</div>
+            <div class="vote-dot up">↑</div><div class="vote-dot up">↑</div>
+            <div class="vote-dot up">↑</div><div class="vote-dot up">↑</div>
+            <div class="vote-dot up">↑</div><div class="vote-dot up">↑</div>
+            <div class="vote-dot excluded" title="excluded">✕</div>
+            <div class="vote-dot excluded" title="excluded">✕</div>
+            <div class="vote-dot excluded" title="excluded">✕</div>
+            <div class="vote-dot excluded" title="excluded">✕</div>
+          </div>
+          <div style="margin-top:8px;font-size:10px;color:var(--muted);font-family:var(--mono)">
+            ↑ = voted UP &nbsp;|&nbsp; ✕ = excluded (malicious)
+          </div>
+        </div>
+        <div style="text-align:center;font-size:28px">→</div>
+        <div class="consensus-side">
+          <div class="consensus-label">FINAL VERDICT</div>
+          <div class="consensus-value" style="color:var(--green);font-size:20px;margin-bottom:6px">✅ WEBSITE UP</div>
+          <div class="tx-card" style="margin-top:6px">
+            <div class="tx-row"><span class="tx-key">confidence</span><span class="tx-val green">96%</span></div>
+            <div class="tx-row"><span class="tx-key">votes_up</span><span class="tx-val green">16 / 16</span></div>
+            <div class="tx-row"><span class="tx-key">votes_excluded</span><span class="tx-val red">4 (malicious)</span></div>
+            <div class="tx-row"><span class="tx-key">avg_response_time</span><span class="tx-val">198ms</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-icon">↓</div><div class="arrow-label">recordConsensus() called → result stored immutably on Geth blockchain</div></div>
+
+  <!-- ════════════════════════════════════════ -->
+  <!-- PHASE 9 — BLOCKCHAIN STORAGE            -->
+  <!-- ════════════════════════════════════════ -->
+  <div class="phase-label" style="color:var(--purple)">● PHASE 9 — IMMUTABLE BLOCKCHAIN STORAGE</div>
+
+  <div class="box purple">
+    <div class="box-header">
+      <div class="box-icon">🔐</div>
+      <div class="box-title">
+        <h3>Geth Blockchain — Permanent Tamper-Proof Storage</h3>
+        <div class="subtitle">Every report · every reputation update · every verdict stored forever with transaction hash</div>
+      </div>
+      <div class="step-badge">STEP 8</div>
+    </div>
+    <div class="box-body">
+      <div class="grid3" style="gap:8px">
+        <div class="tx-card">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--purple);margin-bottom:8px;font-weight:700">NODE REPORT TX</div>
+          <div class="tx-row"><span class="tx-key">tx_hash</span><span class="tx-val">0xabc123...def456</span></div>
+          <div class="tx-row"><span class="tx-key">from</span><span class="tx-val">0xNode01...</span></div>
+          <div class="tx-row"><span class="tx-key">url</span><span class="tx-val">example.com</span></div>
+          <div class="tx-row"><span class="tx-key">status</span><span class="tx-val green">UP</span></div>
+          <div class="tx-row"><span class="tx-key">response_ms</span><span class="tx-val">187</span></div>
+          <div class="tx-row"><span class="tx-key">ssl_valid</span><span class="tx-val green">true</span></div>
+        </div>
+        <div class="tx-card">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--red);margin-bottom:8px;font-weight:700">SLASH EVENT TX</div>
+          <div class="tx-row"><span class="tx-key">tx_hash</span><span class="tx-val">0x789xyz...012abc</span></div>
+          <div class="tx-row"><span class="tx-key">node</span><span class="tx-val red">0xNode17...</span></div>
+          <div class="tx-row"><span class="tx-key">action</span><span class="tx-val red">SLASH</span></div>
+          <div class="tx-row"><span class="tx-key">rep_before</span><span class="tx-val">0.38</span></div>
+          <div class="tx-row"><span class="tx-key">rep_after</span><span class="tx-val red">0.00</span></div>
+          <div class="tx-row"><span class="tx-key">reason</span><span class="tx-val red">false_reporter</span></div>
+        </div>
+        <div class="tx-card">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--green);margin-bottom:8px;font-weight:700">CONSENSUS TX</div>
+          <div class="tx-row"><span class="tx-key">tx_hash</span><span class="tx-val">0xfinal1...23456</span></div>
+          <div class="tx-row"><span class="tx-key">url</span><span class="tx-val">example.com</span></div>
+          <div class="tx-row"><span class="tx-key">final_status</span><span class="tx-val green">UP</span></div>
+          <div class="tx-row"><span class="tx-key">confidence</span><span class="tx-val green">96%</span></div>
+          <div class="tx-row"><span class="tx-key">votes_up</span><span class="tx-val">16</span></div>
+          <div class="tx-row"><span class="tx-key">timestamp</span><span class="tx-val">1710234567</span></div>
+        </div>
+      </div>
+      <div class="info-row">
+        <div class="info-badge"><span>🔗</span>All 4 Geth laptops hold identical copy of all these transactions</div>
+        <div class="info-badge"><span>🚫</span>No one can edit or delete any record — cryptographically sealed</div>
+        <div class="info-badge"><span>⚖️</span>SLA violation evidence — if host denies downtime, blockchain proves it</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow"><div class="arrow-icon">↓</div><div class="arrow-label">React dashboard reads blockchain via Web3.js in real-time</div></div>
+
+  <!-- ════════════════════════════════════════ -->
+  <!-- PHASE 10 — FINAL OUTPUT / DASHBOARD     -->
+  <!-- ════════════════════════════════════════ -->
+  <div class="phase-label" style="color:var(--green)">● PHASE 10 — FINAL OUTPUT — REACT DASHBOARD</div>
+
+  <div class="box green">
+    <div class="box-header">
+      <div class="box-icon">📊</div>
+      <div class="box-title">
+        <h3>React.js Dashboard — Live View</h3>
+        <div class="subtitle">Reads from Geth blockchain via Web3.js · MetaMask connected · real-time updates</div>
+      </div>
+      <div class="step-badge">OUTPUT</div>
+    </div>
+    <div class="box-body">
+      <div class="dash-grid">
+        <div class="dash-card">
+          <div class="d-icon">🌐</div>
+          <div class="d-label">Live Website Status</div>
+          <div class="d-desc">UP/DOWN per URL · response time · SSL badge · content integrity · updates every 60s</div>
+        </div>
+        <div class="dash-card">
+          <div class="d-icon">🤖</div>
+          <div class="d-label">Node Reputation Table</div>
+          <div class="d-desc">All 20 nodes · reputation score · action status · ALLOW/WARN/QUARANTINE/SLASH badges</div>
+        </div>
+        <div class="dash-card">
+          <div class="d-icon">⛓</div>
+          <div class="d-label">Blockchain Transaction Log</div>
+          <div class="d-desc">Every report TX hash · every slash event · every consensus result · click to verify</div>
+        </div>
+        <div class="dash-card">
+          <div class="d-icon">📈</div>
+          <div class="d-label">Uptime History Chart</div>
+          <div class="d-desc">Timeline graph of UP/DOWN history per website · response time trend over time</div>
+        </div>
+        <div class="dash-card">
+          <div class="d-icon">🚨</div>
+          <div class="d-label">Alert System</div>
+          <div class="d-desc">Real-time alert when website goes DOWN · malicious node detected · SLA violation recorded</div>
+        </div>
+        <div class="dash-card">
+          <div class="d-icon">🔍</div>
+          <div class="d-label">ML Detection Report</div>
+          <div class="d-desc">Which nodes were flagged · malicious_probability scores · reason for SLASH decision</div>
+        </div>
+      </div>
+      <div class="output-grid" style="margin-top:12px">
+        <div class="output-card">
+          <h4>📄 Per Website Final Report</h4>
+          <div class="output-field"><span class="k">url</span><span class="v blue">https://example.com</span></div>
+          <div class="output-field"><span class="k">final_status</span><span class="v up">UP ✅</span></div>
+          <div class="output-field"><span class="k">confidence</span><span class="v up">96%</span></div>
+          <div class="output-field"><span class="k">avg_response_time</span><span class="v cyan">198 ms</span></div>
+          <div class="output-field"><span class="k">ssl_valid</span><span class="v up">true</span></div>
+          <div class="output-field"><span class="k">content_intact</span><span class="v up">true</span></div>
+          <div class="output-field"><span class="k">nodes_voted</span><span class="v cyan">16</span></div>
+          <div class="output-field"><span class="k">nodes_excluded</span><span class="v down">4 (malicious)</span></div>
+          <div class="output-field"><span class="k">tx_hash</span><span class="v blue">0xfinal1...23456</span></div>
+        </div>
+        <div class="output-card">
+          <h4>🤖 Per Node ML Report</h4>
+          <div class="output-field"><span class="k">node_17</span><span class="v down">SLASH · rep 0.00 · prob 0.91</span></div>
+          <div class="output-field"><span class="k">node_18</span><span class="v orange">QUARANTINE · rep 0.42 · prob 0.84</span></div>
+          <div class="output-field"><span class="k">node_19</span><span class="v orange">QUARANTINE · rep 0.45 · prob 0.76</span></div>
+          <div class="output-field"><span class="k">node_20</span><span class="v orange">WARN · rep 0.62 · prob 0.63</span></div>
+          <div class="output-field"><span class="k">node_01</span><span class="v up">ALLOW · rep 0.94 · prob 0.06</span></div>
+          <div class="output-field"><span class="k">node_02</span><span class="v up">ALLOW · rep 0.91 · prob 0.09</span></div>
+          <div class="output-field"><span class="k">node_03</span><span class="v up">ALLOW · rep 0.96 · prob 0.04</span></div>
+          <div class="output-field"><span class="k">detection_accuracy</span><span class="v up">4 / 4 malicious caught</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════ -->
+  <!-- SUMMARY                                 -->
+  <!-- ════════════════════════════════════════ -->
+  <div style="margin-top:24px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px 24px;">
+    <div style="font-family:var(--mono);font-size:10px;letter-spacing:2px;color:var(--cyan);margin-bottom:14px;">COMPLETE DATA FLOW SUMMARY</div>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--muted);line-height:2.2;">
+      <span style="color:var(--cyan)">TARGET URLS</span> → registered in smart contract
+      <span style="color:var(--border)"> ──── </span>
+      <span style="color:var(--blue)">20 NODES</span> check every URL every 60s
+      <span style="color:var(--border)"> ──── </span>
+      <span style="color:var(--cyan)">5 METRICS</span> per check (status, RT, SSL, hash, latency)
+      <span style="color:var(--border)"> ──── </span>
+      <span style="color:var(--purple)">GETH CONTRACT</span> stores every signed report
+      <span style="color:var(--border)"> ──── </span>
+      <span style="color:var(--orange)">20 FEATURES</span> extracted per node per epoch
+      <span style="color:var(--border)"> ──── </span>
+      <span style="color:var(--blue)">3 ML MODELS</span> → Gradient Boosting → malicious probability
+      <span style="color:var(--border)"> ──── </span>
+      <span style="color:var(--orange)">REPUTATION ENGINE</span> → Bayesian + EWMA → ALLOW/WARN/QUARANTINE/SLASH
+      <span style="color:var(--border)"> ──── </span>
+      <span style="color:var(--green)">CONSENSUS VOTE</span> → trusted nodes only → final UP/DOWN verdict
+      <span style="color:var(--border)"> ──── </span>
+      <span style="color:var(--purple)">BLOCKCHAIN</span> stores verdict permanently with TX hash
+      <span style="color:var(--border)"> ──── </span>
+      <span style="color:var(--green)">DASHBOARD</span> displays live status + reputation + alerts
+    </div>
+  </div>
+
+</div>
+
+<div style="text-align:center;margin-top:32px;font-family:var(--mono);font-size:10px;color:var(--muted);">
+  Decentralized Website Monitoring · Blockchain Minor Project · 6th Semester
+</div>
+
+</body>
+</html>

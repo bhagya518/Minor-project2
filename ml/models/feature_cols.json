@@ -1,0 +1,15 @@
+[
+  "accuracy",
+  "false_positive_rate",
+  "false_negative_rate",
+  "avg_rt_error",
+  "max_rt_error",
+  "peer_agreement_rate",
+  "historical_accuracy",
+  "accuracy_std_dev",
+  "report_consistency",
+  "sudden_change_score",
+  "ssl_accuracy",
+  "uptime_deviation",
+  "rt_consistency"
+]
