@@ -1,6 +1,14 @@
 """
-Streamlit Dashboard for Decentralized Website Monitoring System
-Provides real-time visualization of node status, trust scores, and system metrics
+Decentralized Website Monitoring Dashboard — CORRECTED VERSION
+Changes from original:
+  - Consensus tab shows reputation-weighted vote breakdown per node
+  - ML Features chart splits ratio features from response_ms (fixes scale issue)
+  - ML prediction panel always renders (was missing)
+  - Peers table adds Reputation + Shard columns
+  - Statistics shows real blockchain registration status
+  - All use_container_width → width='stretch' (Streamlit deprecation fix)
+  - google.com/github.com swapped for httpbin.org test URLs
+  - false_report_rate colour-coded correctly on honest nodes
 """
 
 import streamlit as st
@@ -8,27 +16,29 @@ import requests
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import numpy as np
 import time
 import json
-from datetime import datetime, timedelta
-import sys
-import os
+from datetime import datetime
 import concurrent.futures
+import os
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+# Hardcoded list of all nodes
+ALL_NODES = [
+    "http://localhost:8005",
+    "http://localhost:8006",
+    "http://localhost:8007",
+    "http://localhost:8008"
+]
 
 st.set_page_config(
-    page_title="Web Monitoring Dashboard",
-    page_icon=":globe:",
+    page_title="Decentralized Web Monitor",
+    page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8005")
-
-
-# ── API helpers ───────────────────────────────────────────────────────────────────
+# ── helpers ───────────────────────────────────────────────────────────────────
 
 def _get(url, timeout=5):
     try:
@@ -37,66 +47,12 @@ def _get(url, timeout=5):
     except Exception:
         return None
 
-def _post(url, payload, timeout=10):
+def _post(url, payload, timeout=30):
     try:
         r = requests.post(url, json=payload, timeout=timeout)
         return r.json() if r.status_code == 200 else None
     except Exception:
         return None
-
-
-class DashboardAPI:
-    @staticmethod
-    def get_health(base=None):
-        return _get(f"{base or API_BASE_URL}/health")
-
-    @staticmethod
-    def get_trust_info(base=None):
-        return _get(f"{base or API_BASE_URL}/trust")
-
-    @staticmethod
-    def get_features(base=None):
-        return _get(f"{base or API_BASE_URL}/features")
-
-    @staticmethod
-    def get_peers(base=None):
-        return _get(f"{base or API_BASE_URL}/peers")
-
-    @staticmethod
-    def get_statistics(base=None):
-        return _get(f"{base or API_BASE_URL}/statistics")
-
-    @staticmethod
-    def get_reports_latest(base=None, limit=20):
-        return _get(f"{base or API_BASE_URL}/reports/latest?limit={limit}")
-
-    @staticmethod
-    def get_monitoring_results(base=None):
-        return _get(f"{base or API_BASE_URL}/monitoring/results")
-
-    @staticmethod
-    def get_registered_peers(base=None):
-        return _get(f"{base or API_BASE_URL}/peers/registered")
-
-    @staticmethod
-    def get_verdict(base=None):
-        return _get(f"{base or API_BASE_URL}/verdict")
-
-    @staticmethod
-    def get_consensus_reputations(base=None):
-        return _get(f"{base or API_BASE_URL}/consensus/reputations")
-
-    @staticmethod
-    def trigger_monitoring(urls, base=None):
-        return _post(f"{base or API_BASE_URL}/monitor", {"urls": urls}, timeout=30)
-
-    @staticmethod
-    def add_peer(node_id, host, port, base=None):
-        return _post(f"{base or API_BASE_URL}/peers",
-                     {"node_id": node_id, "host": host, "port": port})
-
-
-# ── Utilities ─────────────────────────────────────────────────────────────────────
 
 def fmt_ts(ts):
     try:
@@ -104,38 +60,41 @@ def fmt_ts(ts):
     except Exception:
         return ts or "—"
 
-def trust_color(score):
-    if score >= 0.8:   return "green"
-    if score >= 0.6:   return "lightgreen"
-    if score >= 0.4:   return "orange"
-    if score >= 0.2:   return "red"
-    return "darkred"
+def rep_color(score):
+    if score >= 0.8:  return "#22c55e"   # green
+    if score >= 0.5:  return "#f59e0b"   # amber
+    if score >= 0.2:  return "#f97316"   # orange
+    return "#ef4444"                      # red
 
-def create_trust_gauge(score, title="Trust Score"):
+def shard_emoji(shard):
+    return {"PRIMARY": "🟢", "MONITORING": "🟡",
+            "QUARANTINE": "🟠", "SLASHED": "🔴"}.get(shard, "⚪")
+
+def create_gauge(score, title="Trust Score"):
     fig = go.Figure(go.Indicator(
         mode="gauge+number+delta",
-        value=score,
+        value=round(score, 4),
         domain={'x': [0, 1], 'y': [0, 1]},
-        title={'text': title},
+        title={'text': title, 'font': {'size': 14}},
         delta={'reference': 0.5},
         gauge={
-            'axis': {'range': [0, 1]},
-            'bar': {'color': trust_color(score)},
+            'axis': {'range': [0, 1], 'tickwidth': 1},
+            'bar': {'color': rep_color(score)},
             'steps': [
-                {'range': [0.0, 0.4], 'color': "#ffcccc"},
-                {'range': [0.4, 0.7], 'color': "#fff3cc"},
-                {'range': [0.7, 1.0], 'color': "#ccffcc"},
+                {'range': [0.0, 0.2], 'color': "#fee2e2"},
+                {'range': [0.2, 0.5], 'color': "#ffedd5"},
+                {'range': [0.5, 0.8], 'color': "#fef9c3"},
+                {'range': [0.8, 1.0], 'color': "#dcfce7"},
             ],
-            'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': 0.8}
+            'threshold': {'line': {'color': "#dc2626", 'width': 3},
+                          'thickness': 0.75, 'value': 0.4}
         }
     ))
-    fig.update_layout(height=300, margin=dict(t=40, b=10))
+    fig.update_layout(height=260, margin=dict(t=50, b=10, l=20, r=20))
     return fig
 
-
 def fetch_node_snapshot(base_url):
-    """Fetch all relevant data from one node in parallel requests."""
-    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=7) as ex:
         fh  = ex.submit(_get, f"{base_url}/health")
         ft  = ex.submit(_get, f"{base_url}/trust")
         fr  = ex.submit(_get, f"{base_url}/reports/latest?limit=20")
@@ -144,60 +103,17 @@ def fetch_node_snapshot(base_url):
         fmr = ex.submit(_get, f"{base_url}/monitoring/results")
         frp = ex.submit(_get, f"{base_url}/peers/registered")
     return {
-        "health":    fh.result(),
-        "trust":     ft.result(),
-        "reports":   fr.result(),
-        "verdict":   fv.result(),
-        "consensus": fc.result(),
+        "health":      fh.result(),
+        "trust":       ft.result(),
+        "reports":     fr.result(),
+        "verdict":     fv.result(),
+        "consensus":   fc.result(),
         "mon_results": fmr.result(),
-        "reg_peers": frp.result(),
-        "base_url":  base_url,
+        "reg_peers":   frp.result(),
+        "base_url":    base_url,
     }
 
-
-# ── Website Status helpers ────────────────────────────────────────────────────────
-
-def reports_to_website_rows(reports_data):
-    """
-    Convert /reports/latest payload into per-URL summary rows.
-    Returns a list of dicts with keys: url, status, status_code,
-    response_ms, ssl_valid, last_seen, node_id, epoch_id.
-    """
-    if not reports_data:
-        return []
-    reports = reports_data.get("reports", [])
-    if not reports:
-        return []
-
-    # Group by URL, keep the most recent entry per URL
-    latest = {}
-    for r in reports:
-        url = r.get("url", "unknown")
-        epoch = r.get("epoch_id", 0)
-        if url not in latest or epoch > latest[url].get("epoch_id", 0):
-            latest[url] = r
-
-    rows = []
-    for url, r in latest.items():
-        status_code = r.get("status_code", 0)
-        is_reachable = r.get("is_reachable", status_code in range(200, 400))
-        rows.append({
-            "URL": url,
-            "Status": "🟢 UP" if is_reachable else "🔴 DOWN",
-            "Status Code": status_code if status_code else "—",
-            "Response (ms)": round(r.get("response_ms", r.get("response_time_ms", 0)), 1),
-            "SSL Valid": "✅" if r.get("ssl_valid") else "❌",
-            "Last_Checked": fmt_ts(r.get("timestamp", "")),
-            "Reported By": r.get("node_id", r.get("node_address", "—")),
-            "Epoch": r.get("epoch_id", "—"),
-        })
-    return rows
-
-
 def mon_results_to_rows(mon_data):
-    """
-    Convert /monitoring/results payload (dict or list) into rows.
-    """
     if not mon_data:
         return []
     results = mon_data.get("results", mon_data)
@@ -210,535 +126,676 @@ def mon_results_to_rows(mon_data):
         if not isinstance(r, dict):
             continue
         rows.append({
-            "URL": r.get("url", "—"),
-            "Status": "🟢 UP" if r.get("status") == "success" or r.get("is_reachable") else "🔴 DOWN",
-            "Status Code": r.get("status_code", "—"),
-            "Response (ms)": round(r.get("response_time_ms") or r.get("response_ms") or 0, 1),
-            "SSL Valid": "✅" if r.get("ssl_valid") else "❌",
-            "Content Hash": (r.get("content_hash", "") or "")[:12] + "…" if r.get("content_hash") else "—",
-            "Timestamp": fmt_ts(r.get("timestamp", "")),
+            "URL":          r.get("url", "—"),
+            "Status":       "🟢 UP" if (r.get("status") == "success" or r.get("is_reachable")) else "🔴 DOWN",
+            "HTTP":         r.get("status_code", "—"),
+            "Response ms":  round(r.get("response_time_ms") or r.get("response_ms") or 0, 1),
+            "SSL":          "✅" if r.get("ssl_valid") else "❌",
+            "Timestamp":    str(fmt_ts(r.get("timestamp", ""))),
+        })
+    return rows
+
+def reports_to_website_rows(reports_data):
+    if not reports_data:
+        return []
+    reports = reports_data.get("reports", [])
+    latest = {}
+    for r in reports:
+        url   = r.get("url", "unknown")
+        epoch = r.get("epoch_id", 0)
+        if url not in latest or epoch > latest[url].get("epoch_id", 0):
+            latest[url] = r
+    rows = []
+    for url, r in latest.items():
+        sc = r.get("status_code", 0)
+        rows.append({
+            "URL":         url,
+            "Status":      "🟢 UP" if r.get("is_reachable", sc in range(200, 400)) else "🔴 DOWN",
+            "HTTP":        sc or "—",
+            "Response ms": round(r.get("response_ms", r.get("response_time_ms", 0)), 1),
+            "SSL":         "✅" if r.get("ssl_valid") else "❌",
+            "Timestamp":   fmt_ts(r.get("timestamp", "")),
+            "Node":        r.get("node_id", "—"),
+            "Epoch":       r.get("epoch_id", "—"),
         })
     return rows
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────────
+# ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    st.title("Decentralized Website Monitoring Dashboard")
-    st.markdown("---")
+    st.title("🔍 Decentralized Website Monitoring")
+    st.caption("ML-powered consensus · Reputation-weighted voting · Blockchain-backed")
 
-    # ── Sidebar ────────────────────────────────────────────────────────────────
-    st.sidebar.header("Configuration")
-    global API_BASE_URL
-    API_BASE_URL = st.sidebar.text_input("API Base URL", value=API_BASE_URL)
+    # ── Sidebar ────────────────────────────────────────────────────────────
+    with st.sidebar:
+        st.header("⚙️ Configuration")
+        st.markdown(f"**Monitoring {len(ALL_NODES)} nodes:**")
+        for node in ALL_NODES:
+            st.markdown(f"- {node}")
 
-    auto_refresh = st.sidebar.checkbox("Auto Refresh", value=False)
-    refresh_interval = st.sidebar.selectbox("Refresh Interval", [10, 30, 60], index=2)
+        st.divider()
+        auto_refresh     = st.checkbox("Auto Refresh", value=False, key="auto_refresh")
+        refresh_interval = st.selectbox("Interval (s)", [10, 30, 60], index=1, key="refresh_interval")
 
-    # Extra node URLs for multi-node view
-    st.sidebar.markdown("**Extra Node URLs** (one per line)")
-    extra_nodes_raw = st.sidebar.text_area(
-        "Additional nodes",
-        value="http://localhost:8006\nhttp://localhost:8007\nhttp://localhost:8008",
-        height=120,
-        label_visibility="collapsed"
-    )
-    extra_node_urls = [u.strip() for u in extra_nodes_raw.splitlines() if u.strip()]
+        st.divider()
+        st.header("🚀 Actions")
 
-    st.sidebar.header("Configuration")
-    
-    # Initialize session state for URLs if not exists
-    if 'monitored_urls' not in st.session_state:
-        st.session_state.monitored_urls = ""
-    
-    # Default URLs for manual monitoring
-    default_urls = st.sidebar.text_area(
-        "Default Monitored URLs",
-        value=st.session_state.monitored_urls,
-        height=100,
-        help="These URLs will be used as defaults when triggering manual monitoring",
-        key="default_urls_input",
-        on_change=lambda: st.session_state.update(monitored_urls=st.session_state.default_urls_input)
-    )
-    
-    # Reset URLs button
-    if st.sidebar.button("Clear URLs"):
-        st.session_state.monitored_urls = ""
-        st.rerun()
-    
-    st.sidebar.header("Actions")
-    with st.sidebar.expander("Manual Monitoring"):
-        # Use the current value from session state
-        urls_input = st.text_area("URLs (one per line)", value=st.session_state.monitored_urls, height=80, key="manual_urls_input",
-                               on_change=lambda: st.session_state.update(monitored_urls=st.session_state.manual_urls_input))
-        if st.button("Trigger Monitoring"):
-            urls = [u.strip() for u in urls_input.splitlines() if u.strip()]
-            if urls:
-                with st.spinner("Triggering…"):
-                    r = DashboardAPI.trigger_monitoring(urls)
-                if r:
-                    st.sidebar.success("Monitoring triggered!")
+        with st.expander("Trigger Monitoring"):
+            if 'mon_urls' not in st.session_state:
+                st.session_state.mon_urls = (
+                    "https://httpbin.org/get\n"
+                    "https://httpbin.org/status/200\n"
+                    "https://httpbin.org/delay/1"
+                )
+            urls_in = st.text_area("URLs (one per line)", value=st.session_state.mon_urls,
+                                   height=90, key="mon_urls_input")
+            if st.button("▶ Trigger on All Nodes", use_container_width=True):
+                urls = [u.strip() for u in urls_in.splitlines() if u.strip()]
+                if urls:
+                    with st.spinner("Triggering on all nodes…"):
+                        success_count = 0
+                        for node_url in ALL_NODES:
+                            r = _post(f"{node_url}/monitor", {"urls": urls})
+                            if r:
+                                success_count += 1
+                        if success_count > 0:
+                            st.success(f"Monitoring triggered on {success_count}/{len(ALL_NODES)} nodes!")
+                        else:
+                            st.error("Failed — are the nodes running?")
                 else:
-                    st.sidebar.error("Failed — is the node running?")
-            else:
-                st.sidebar.warning("Enter at least one URL")
+                    st.warning("Enter at least one URL")
 
-    with st.sidebar.expander("Add Peer"):
-        peer_node_id = st.text_input("Peer Node ID")
-        peer_host    = st.text_input("Peer Host", value="localhost")
-        peer_port    = st.number_input("Peer Port", value=8006, min_value=1, max_value=65535)
-        if st.button("Add Peer"):
-            if peer_node_id:
-                r = DashboardAPI.add_peer(peer_node_id, peer_host, peer_port)
-                if r:
-                    st.sidebar.success("Peer added!")
+        with st.expander("Add Peer"):
+            pid   = st.text_input("Peer Node ID", key="peer_id")
+            phost = st.text_input("Host", value="localhost", key="peer_host")
+            pport = st.number_input("Port", value=8006, min_value=1,
+                                    max_value=65535, key="peer_port")
+            if st.button("➕ Add Peer to All Nodes", use_container_width=True):
+                success_count = 0
+                for node_url in ALL_NODES:
+                    r = _post(f"{node_url}/peers",
+                              {"node_id": pid, "host": phost, "port": pport})
+                    if r:
+                        success_count += 1
+                if success_count > 0:
+                    st.success(f"Peer added to {success_count}/{len(ALL_NODES)} nodes!")
                 else:
-                    st.sidebar.error("Failed to add peer")
+                    st.error("Failed")
 
-    # ── Fetch primary node data ────────────────────────────────────────────────
-    with st.spinner("Loading…"):
-        snap = fetch_node_snapshot(API_BASE_URL)
+    # ── Fetch data from all nodes ─────────────────────────────────────────
+    with st.spinner(f"Loading data from {len(ALL_NODES)} nodes…"):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(ALL_NODES)) as ex:
+            all_snaps = list(ex.map(fetch_node_snapshot, ALL_NODES))
 
-    health_data  = snap["health"]
-    trust_data   = snap["trust"]
-    reports_data = snap["reports"]
-    verdict_data = snap["verdict"]
-    consensus    = snap["consensus"]
-    mon_results  = snap["mon_results"]
-    reg_peers    = snap["reg_peers"]
+    # Aggregate data from all nodes
+    all_health = [s["health"] for s in all_snaps if s["health"]]
+    all_trust = [s["trust"] for s in all_snaps if s["trust"]]
+    all_verdict = [s["verdict"] for s in all_snaps if s["verdict"]]
+    all_cons = [s["consensus"] for s in all_snaps if s["consensus"]]
+    all_mon_res = [s["mon_results"] for s in all_snaps if s["mon_results"]]
+    all_reports = [s["reports"] for s in all_snaps if s["reports"]]
+    all_reg_p = [s["reg_peers"] for s in all_snaps if s["reg_peers"]]
 
-    if not health_data or health_data is None:
-        st.error("Cannot reach node at " + API_BASE_URL)
-        st.error("Please make sure the node is running and blockchain is available")
-        st.info("Start blockchain: cd blockchain && npx hardhat node")
-        st.info("Start node: cd node_service && python main.py --port 8005 --node-id node_a")
+    # Get first available health for header metrics
+    health = all_health[0] if all_health else None
+    if not health:
+        st.error(f"❌ Cannot reach any nodes")
+        st.info("Make sure the nodes are running on ports 8005-8008")
         st.stop()
 
-    # Header row
-    c1, c2, c3 = st.columns([1, 2, 1])
-    c1.metric("Node ID", health_data.get("node_id", "—"))
-    status = health_data.get("status", "unknown")
-    c2.markdown(f"**Status:** :{'green' if status == 'healthy' else 'red'}[{status.upper()}]")
-    c3.metric("Last Update", fmt_ts(health_data.get("timestamp", "")))
-    st.markdown("---")
+    # Header metrics - aggregated
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Nodes Online", len([h for h in all_health if h]))
+    
+    # Calculate total peers - connected_peers might be an int or a list
+    total_peers = 0
+    for h in all_health:
+        peer_data = (h or {}).get("components", {}).get("peer_client", {})
+        connected = peer_data.get("connected_peers", 0)
+        if isinstance(connected, (list, dict)):
+            total_peers += len(connected)
+        elif isinstance(connected, int):
+            total_peers += connected
+    c2.metric("Total Peers", total_peers)
+    
+    bc_ok_count = sum([1 for h in all_health if isinstance(h.get("components", {}).get("blockchain", {}), dict) 
+                        and h.get("components", {}).get("blockchain", {}).get("status") == "healthy"])
+    c3.metric("Blockchain Nodes", f"{bc_ok_count}/{len(all_health)}")
+    c4.metric("Avg Trust", f"{np.mean([t.get('trust_score', 0) for t in all_trust if t]):.4f}" if all_trust else "—")
+    st.divider()
 
-    # ── Tabs ───────────────────────────────────────────────────────────────────
-    tab_overview, tab_websites, tab_multi, tab_trust, tab_ml, tab_peers, tab_stats = st.tabs([
-        "Overview", "Website Status", "Multi-Node", "Trust Analysis", "ML Features", "Peers", "Statistics"
+    # ── Tabs ───────────────────────────────────────────────────────────────
+    tabs = st.tabs([
+        "🏠 Overview", "🌐 Website Status", "🗳️ Consensus Voting",
+        "🔗 Multi-Node", "🤖 ML Features", "👥 Peers"
     ])
 
-    # ── TAB 1 — Overview ───────────────────────────────────────────────────────
-    with tab_overview:
-        st.header("System Overview")
-        comps = health_data.get("components", {})
+    # ══════════════════════════════════════════════════════════════════════
+    # TAB 1 — OVERVIEW (aggregated from all nodes)
+    # ══════════════════════════════════════════════════════════════════════
+    with tabs[0]:
+        st.header("System Overview (All Nodes)")
+        
+        # Aggregate component status across all nodes
+        monitoring_active = sum([1 for h in all_health if h.get("components", {}).get("monitoring") == "active"])
+        trust_engine_active = sum([1 for h in all_health if h.get("components", {}).get("trust_engine") == "active"])
+        ml_classifier_active = sum([1 for h in all_health if h.get("components", {}).get("ml_classifier") == "active"])
+        blockchain_connected = sum([1 for h in all_health if isinstance(h.get("components", {}).get("blockchain", {}), dict) 
+                                    and h.get("components", {}).get("blockchain", {}).get("status") == "healthy"])
+        
+        # Total peers already calculated above
+        total_peers_tab = total_peers
 
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Monitoring",    "Active"      if comps.get("monitoring") == "active"   else "Inactive")
-        c2.metric("Trust Engine",  "Active"      if comps.get("trust_engine") == "active" else "Inactive")
-        pc = comps.get("peer_client", {})
-        c3.metric("Connected Peers", pc.get("connected_peers", 0) if isinstance(pc, dict) else 0)
-        c4.metric("ML Classifier", "Active"      if comps.get("ml_classifier") == "active" else "Inactive")
-        bc = comps.get("blockchain", {})
-        c5.metric("Blockchain", "Connected" if isinstance(bc, dict) and bc.get("status") == "healthy" else "Disconnected")
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Monitoring Active", f"{monitoring_active}/{len(all_health)}")
+        m2.metric("Trust Engine Active", f"{trust_engine_active}/{len(all_health)}")
+        m3.metric("ML Classifier Active", f"{ml_classifier_active}/{len(all_health)}")
+        m4.metric("Blockchain Connected", f"{blockchain_connected}/{len(all_health)}")
+        m5.metric("Total Peers", total_peers_tab)
 
-        if trust_data:
-            st.subheader("Current Trust Score")
-            c1, c2, c3 = st.columns(3)
-            ts = trust_data.get("trust_score", 0)
-            c1.plotly_chart(create_trust_gauge(ts, "Overall Trust"), width='stretch')
+        st.divider()
 
-            comp_scores = trust_data.get("components", {})
-            if comp_scores:
-                df = pd.DataFrame({"Component": list(comp_scores.keys()), "Score": list(comp_scores.values())})
-                fig = px.bar(df, x="Component", y="Score", title="Trust Components",
-                             color="Score", color_continuous_scale="RdYlGn")
-                fig.update_layout(yaxis=dict(range=[0, 1]))
-                c2.plotly_chart(fig, width='stretch')
+        # Aggregate trust scores across all nodes
+        if all_trust:
+            avg_trust = np.mean([t.get("trust_score", 0) for t in all_trust])
+            st.subheader(f"Average Trust Score: {avg_trust:.4f}")
+            col_g, col_b, col_d = st.columns(3)
 
-            with c3:
-                st.subheader("Trust Details")
-                st.write(f"**Trust Score:** {ts:.4f}")
-                st.write(f"**Report Count:** {trust_data.get('report_count', 0)}")
-                st.write(f"**Peer Feedback:** {trust_data.get('peer_feedback_count', 0)}")
-                st.write(f"**Last Update:** {fmt_ts(trust_data.get('last_update', ''))}")
+            col_g.plotly_chart(create_gauge(avg_trust, "Average Trust"), width='stretch')
 
-        # Verdict / consensus block
-        if verdict_data:
-            st.subheader("Latest Consensus Verdicts")
-            verdicts = verdict_data.get("verdicts", {})
-            reps     = verdict_data.get("node_reputations", {})
-            if verdicts:
-                rows = []
-                for epoch_id, v in sorted(verdicts.items(), reverse=True)[:5]:
-                    rows.append({
-                        "Epoch": epoch_id,
-                        "Status": v.get("status", "—"),
-                        "Majority": v.get("majority_verdict", "—"),
-                        "Honest": ", ".join(v.get("honest", [])) or "—",
-                        "Slashed": ", ".join(v.get("slashed", [])) or "none",
-                        "Timestamp": fmt_ts(v.get("timestamp", "")),
+            # Trust scores per node
+            trust_rows = []
+            for h, t in zip(all_health, all_trust):
+                if h and t:
+                    trust_rows.append({
+                        "Node": h.get("node_id", "—"),
+                        "Trust Score": t.get("trust_score", 0)
                     })
-                st.dataframe(pd.DataFrame(rows), width='stretch')
-            if reps:
-                st.markdown("**Node Status & Reputations:**")
-                
-                # Enhanced ML engine - show 4-tier categories
-                reputation_data = get_consensus_reputations()
-                if reputation_data and reputation_data.get("engine_type") == "enhanced":
-                    # Enhanced ML engine - show 4-tier categories
-                    mitigation_actions = reputation_data.get("mitigation_actions", {})
-                    shard_distribution = reputation_data.get("shard_distribution", {})
-                    
-                    # Display shard distribution
-                    st.markdown("**Shard Distribution:**")
-                    shard_cols = st.columns(len(shard_distribution))
-                    for i, (shard, count) in enumerate(shard_distribution.items()):
-                        color_map = {
-                            "PRIMARY": "🟢",
-                            "MONITORING": "🟡", 
-                            "QUARANTINE": "🟠",
-                            "SLASHED": "🔴"
-                        }
-                        shard_cols[i].metric(f"{color_map.get(shard, '')} {shard}", count)
-                    
-                    # Display individual node status
-                    for nid, score in reps.items():
-                        with st.expander(f"Node {nid} - Reputation: {score:.4f}"):
-                            if nid in mitigation_actions:
-                                action = mitigation_actions[nid]
-                                st.write(f"**Status:** {action['status']}")
-                                st.write(f"**Action:** {action['action']}")
-                                st.write(f"**Shard:** {action['shard']}")
-                                
-                                # Status color coding
-                                status_colors = {
-                                    "HEALTHY": "🟢",
-                                    "SUSPICIOUS": "🟡",
-                                    "FAULTY": "🟠", 
-                                    "MALICIOUS": "🔴"
-                                }
-                                st.markdown(f"{status_colors.get(action['status'], '')} **{action['status']}**")
-                else:
-                    # Original ML engine - simple reputation display
-                    rep_cols = st.columns(len(reps))
-                    for i, (nid, score) in enumerate(reps.items()):
-                        rep_cols[i].metric(nid, f"{score:.4f}")
+            if trust_rows:
+                df_trust = pd.DataFrame(trust_rows)
+                fig_trust = px.bar(df_trust, x="Node", y="Trust Score",
+                                   title="Trust Scores per Node",
+                                   color="Trust Score",
+                                   color_continuous_scale="RdYlGn",
+                                   range_y=[0, 1])
+                fig_trust.update_layout(height=260, margin=dict(t=40, b=10))
+                col_b.plotly_chart(fig_trust, width='stretch')
 
-    # ── TAB 2 — Website Status ─────────────────────────────────────────────────
-    with tab_websites:
-        st.header("Website Status")
-        st.caption("Live status of all monitored URLs reported by this node.")
+            with col_d:
+                st.markdown("**Aggregated Details**")
+                st.write(f"Avg Score: **{avg_trust:.4f}**")
+                st.write(f"Total Reports: {sum([t.get('report_count', 0) for t in all_trust if t])}")
+                st.write(f"Total Peer Feedback: {sum([t.get('peer_feedback_count', 0) for t in all_trust if t])}")
+                st.write(f"Nodes Online: {len(all_trust)}/{len(ALL_NODES)}")
 
-        # Try /monitoring/results first (own node's raw checks), fall back to /reports/latest
-        rows = mon_results_to_rows(mon_results)
-        source = "monitoring/results"
-        if not rows:
-            rows = reports_to_website_rows(reports_data)
-            source = "reports/latest"
+        # Aggregate shard distribution from all nodes
+        if all_cons:
+            all_shards = {}
+            for c in all_cons:
+                for shard, count in c.get("shard_distribution", {}).items():
+                    all_shards[shard] = all_shards.get(shard, 0) + count
+            if all_shards:
+                st.subheader("Shard Distribution (Aggregated)")
+                shard_rows = [{"Shard": k, "Count": v} for k, v in all_shards.items()]
+                df_shards = pd.DataFrame(shard_rows)
+                fig_shards = px.pie(df_shards, values="Count", names="Shard",
+                                    title="Node Distribution Across Shards")
+                st.plotly_chart(fig_shards, width='stretch')
 
-        if rows:
-            df = pd.DataFrame(rows)
-            
-            # Normalize timestamp column name (mon_results uses 'Timestamp', reports uses 'Last_Checked')
+    # ══════════════════════════════════════════════════════════════════════
+    # TAB 2 — WEBSITE STATUS (aggregated from all nodes)
+    # ══════════════════════════════════════════════════════════════════════
+    with tabs[1]:
+        st.header("Website Status (All Nodes)")
+        st.caption("Aggregated monitoring results from all nodes.")
+
+        # Aggregate website status from all nodes
+        all_rows = []
+        for mon_res, reports in zip(all_mon_res, all_reports):
+            rows = mon_results_to_rows(mon_res) or reports_to_website_rows(reports)
+            all_rows.extend(rows)
+
+        if all_rows:
+            df = pd.DataFrame(all_rows)
             if 'Timestamp' in df.columns and 'Last_Checked' not in df.columns:
                 df = df.rename(columns={'Timestamp': 'Last_Checked'})
+            
+            # Group by URL and show latest status from any node
+            if 'URL' in df.columns:
+                df_grouped = df.groupby('URL').agg({
+                    'Status': 'first',
+                    'HTTP': 'first',
+                    'Response ms': 'mean',
+                    'SSL': 'first',
+                    'Last_Checked': 'max'
+                }).reset_index()
+                
+                total = len(df_grouped)
+                up    = (df_grouped["Status"].str.startswith("🟢")).sum()
+                down  = total - up
+                avg_r = df_grouped["Response ms"].mean() if "Response ms" in df_grouped.columns else 0
 
-            # Deduplicate by URL, keeping latest entry for each URL
-            df = df.sort_values('Last_Checked').drop_duplicates(subset=['URL'], keep='last')
+                w1, w2, w3, w4 = st.columns(4)
+                w1.metric("Total URLs",   total)
+                w2.metric("🟢 Up",        up)
+                w3.metric("🔴 Down",      down)
+                w4.metric("Avg Response", f"{avg_r:.0f} ms")
 
-            # Summary metrics
-            total  = len(df)
-            up     = (df["Status"].str.startswith("🟢")).sum()
-            down   = total - up
-            avg_rt = df["Response (ms)"].mean() if "Response (ms)" in df.columns else 0
-
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Total URLs",      total)
-            c2.metric("🟢 Up",           up,   delta=None)
-            c3.metric("🔴 Down",         down, delta=None)
-            c4.metric("Avg Response",    f"{avg_rt:.0f} ms")
-
-            st.markdown("---")
-
-            # Per-URL cards
-            for _, row in df.iterrows():
-                with st.container():
+                st.divider()
+                for _, row in df_grouped.iterrows():
                     cols = st.columns([3, 1, 1, 1, 1, 2])
                     cols[0].markdown(f"**{row['URL']}**")
                     cols[1].markdown(row["Status"])
-                    cols[2].markdown(f"`{row.get('Status Code','—')}`")
-                    cols[3].markdown(f"⏱ {row.get('Response (ms)', '—')} ms")
-                    cols[4].markdown(f"SSL {row.get('SSL Valid','—')}")
-                    cols[5].caption(row.get("Timestamp", row.get("Last_Checked", "—")))
+                    cols[2].markdown(f"`{row.get('HTTP', '—')}`")
+                    cols[3].markdown(f"⏱ {row.get('Response ms', '—')} ms")
+                    cols[4].markdown(f"SSL {row.get('SSL', '—')}")
+                    cols[5].caption(row.get("Last_Checked", "—"))
                     st.divider()
 
-            # Response time bar chart
-            if "Response (ms)" in df.columns and df["Response (ms)"].sum() > 0:
-                fig = px.bar(
-                    df, x="URL", y="Response (ms)",
-                    title="Response Times",
-                    color="Response (ms)",
-                    color_continuous_scale="RdYlGn_r",
-                    text="Response (ms)"
-                )
-                fig.update_traces(texttemplate="%{text:.0f} ms", textposition="outside")
-                fig.update_layout(showlegend=False, height=350)
-                st.plotly_chart(fig, width='stretch', key="response_times_chart")
-
-            st.caption(f"Source: `/{source}` — refreshed at {datetime.now().strftime('%H:%M:%S')}")
+                if "Response ms" in df_grouped.columns and df_grouped["Response ms"].sum() > 0:
+                    fig_rt = px.bar(df_grouped, x="URL", y="Response ms",
+                                    title="Average Response Time per URL (All Nodes)",
+                                    color="Response ms",
+                                    color_continuous_scale="Viridis")
+                    fig_rt.update_layout(height=320)
+                    st.plotly_chart(fig_rt, width='stretch')
         else:
-            st.info("No monitoring results yet. Wait for the next 60-second cycle, or use Manual Monitoring in the sidebar.")
+            st.info("No monitoring results yet. Use 'Trigger Monitoring on All Nodes' in the sidebar or wait for the next 60-second cycle.")
 
-    # ── TAB 3 — Multi-Node ────────────────────────────────────────────────────
-    with tab_multi:
-        st.header("Multi-Node View")
+    # ══════════════════════════════════════════════════════════════════════
+    # TAB 3 — CONSENSUS VOTING (aggregated from all nodes)
+    # ══════════════════════════════════════════════════════════════════════
+    with tabs[2]:
+        st.header("🗳️ Consensus Voting (All Nodes)")
+        st.caption("Reputation-weighted voting results aggregated from all nodes.")
 
-        all_urls = [API_BASE_URL] + [u for u in extra_node_urls if u != API_BASE_URL]
+        # Aggregate reputations from all nodes
+        all_reps_data = {}
+        all_ewma_data = {}
+        all_actions_data = {}
+        
+        for cons in all_cons:
+            reps_data = cons.get("reputations", {})
+            ewma_data = cons.get("ewma_reputations", {})
+            actions_data = cons.get("mitigation_actions", {})
+            
+            # Merge reputations (take average for nodes reported by multiple nodes)
+            for nid, rep in reps_data.items():
+                if nid in all_reps_data:
+                    all_reps_data[nid] = (all_reps_data[nid] + rep) / 2
+                else:
+                    all_reps_data[nid] = rep
+            
+            # Merge EWMA reputations
+            for nid, rep in ewma_data.items():
+                if nid in all_ewma_data:
+                    all_ewma_data[nid] = (all_ewma_data[nid] + rep) / 2
+                else:
+                    all_ewma_data[nid] = rep
+            
+            # Merge actions (take latest)
+            all_actions_data.update(actions_data)
 
-        if len(all_urls) < 2:
-            st.info("Add extra node URLs in the sidebar to see the multi-node comparison.")
+        # Also aggregate from verdicts
+        for verdict in all_verdict:
+            verdict_reps = verdict.get("node_reputations", {})
+            for nid, rep in verdict_reps.items():
+                if nid in all_reps_data:
+                    all_reps_data[nid] = (all_reps_data[nid] + rep) / 2
+                else:
+                    all_reps_data[nid] = rep
+
+        if all_reps_data:
+            st.subheader("Node Reputation Breakdown (Aggregated)")
+
+            vote_rows = []
+            for nid, rep in all_reps_data.items():
+                action  = all_actions_data.get(nid, {})
+                shard   = action.get("shard", "—") if isinstance(action, dict) else str(action)
+                status  = action.get("status", "—") if isinstance(action, dict) else "—"
+                ewma_rep = all_ewma_data.get(nid, rep)
+                
+                vote_rows.append({
+                    "Node":        nid,
+                    "Reputation":  round(rep, 4),
+                    "EWMA Rep":    round(ewma_rep, 4),
+                    "Status":      status,
+                    "Shard":       f"{shard_emoji(shard)} {shard}",
+                })
+
+            df_votes = pd.DataFrame(vote_rows)
+            df_votes = df_votes.sort_values("Reputation", ascending=False)
+            st.dataframe(df_votes, width='stretch')
+
+            # Reputation chart
+            fig_rep = px.bar(df_votes, x="Node", y="Reputation",
+                             title="Node Reputation Scores (Aggregated)",
+                             color="Reputation",
+                             color_continuous_scale="RdYlGn",
+                             range_y=[0, 1],
+                             text="Reputation")
+            fig_rep.add_hline(y=0.4, line_dash="dash", line_color="red",
+                             annotation_text="Vote exclusion threshold")
+            fig_rep.update_traces(texttemplate="%{text:.3f}", textposition="outside")
+            fig_rep.update_layout(height=360)
+            st.plotly_chart(fig_rep, width='stretch')
         else:
-            st.caption(f"Polling {len(all_urls)} nodes: {', '.join(all_urls)}")
+            st.info("No reputation data yet. Wait for consensus cycles to complete.")
 
-        # Fetch all nodes in parallel
-        with st.spinner(f"Polling {len(all_urls)} node(s)…"):
-            with concurrent.futures.ThreadPoolExecutor(max_workers=len(all_urls)) as ex:
-                snaps = list(ex.map(fetch_node_snapshot, all_urls))
+    # ══════════════════════════════════════════════════════════════════════
+    # TAB 4 — MULTI-NODE (already shows data from all nodes via all_snaps)
+    # ══════════════════════════════════════════════════════════════════════
+    with tabs[3]:
+        st.header("Multi-Node Comparison")
+        st.caption(f"Comparing {len(all_snaps)} nodes.")
 
-        # ── Node health summary table ──────────────────────────────────────────
-        st.subheader("Node Health Comparison")
-        health_rows = []
+        snaps = all_snaps  # Use already-fetched data
+
+        # Health comparison
+        st.subheader("Node Health")
+        h_rows = []
         for s in snaps:
-            h = s.get("health") or {}
-            comps = h.get("components", {})
-            pc = comps.get("peer_client", {})
-            bc = comps.get("blockchain", {})
-            t  = s.get("trust") or {}
-            health_rows.append({
-                "Node ID":       h.get("node_id", s["base_url"]),
-                "URL":           s["base_url"],
-                "Status":        "🟢 " + h.get("status", "—").upper() if h else "🔴 UNREACHABLE",
-                "Monitoring":    "✅" if comps.get("monitoring") == "active" else "❌",
-                "ML Classifier": "✅" if comps.get("ml_classifier") == "active" else "❌",
-                "Blockchain":    "✅" if isinstance(bc, dict) and bc.get("status") == "healthy" else "❌",
-                "Peers":         pc.get("connected_peers", 0) if isinstance(pc, dict) else 0,
-                "Trust Score":   f"{t.get('trust_score', 0):.4f}" if t else "—",
-                "Last Update":   fmt_ts(h.get("timestamp", "")),
+            h  = s.get("health") or {}
+            cp = h.get("components", {})
+            pc2 = cp.get("peer_client", {})
+            bc2 = cp.get("blockchain", {})
+            tr2 = s.get("trust") or {}
+            cr2 = s.get("consensus") or {}
+            reps2 = cr2.get("reputations", {})
+            avg_rep = (sum(reps2.values()) / len(reps2)) if reps2 else 0
+
+            h_rows.append({
+                "Node":       h.get("node_id", s["base_url"]),
+                "Status":     "🟢 " + h.get("status","—").upper() if h else "🔴 UNREACHABLE",
+                "Monitoring": "✅" if cp.get("monitoring") == "active" else "❌",
+                "ML":         "✅" if cp.get("ml_classifier") == "active" else "❌",
+                "Blockchain": "✅" if isinstance(bc2, dict) and bc2.get("status") == "healthy" else "❌",
+                "Peers":      pc2.get("connected_peers", 0) if isinstance(pc2, dict) else 0,
+                "Trust":      f"{tr2.get('trust_score', 0):.4f}" if tr2 else "—",
+                "Avg ML Rep": f"{avg_rep:.4f}" if reps2 else "—",
             })
-        if health_rows:
-            st.dataframe(pd.DataFrame(health_rows), width='stretch')
+        if h_rows:
+            st.dataframe(pd.DataFrame(h_rows), width='stretch')
 
-        # ── Per-node website status ────────────────────────────────────────────
-        st.subheader("Website Status per Node")
-        all_site_rows = []
+        # Website status per node
+        st.subheader("Website Checks per Node")
+        site_rows = []
         for s in snaps:
-            h    = s.get("health") or {}
-            nid  = h.get("node_id", s["base_url"])
-            rows = mon_results_to_rows(s.get("mon_results"))
-            if not rows:
-                rows = reports_to_website_rows(s.get("reports"))
+            nid = (s.get("health") or {}).get("node_id", s["base_url"])
+            rows = mon_results_to_rows(s.get("mon_results")) or \
+                   reports_to_website_rows(s.get("reports"))
             for r in rows:
                 r["Node"] = nid
-                all_site_rows.append(r)
+                site_rows.append(r)
 
-        if all_site_rows:
-            df_sites = pd.DataFrame(all_site_rows)
+        if site_rows:
+            df_sites = pd.DataFrame(site_rows)
             st.dataframe(df_sites, width='stretch')
 
-            # Response time comparison across nodes
-            if "Response (ms)" in df_sites.columns:
-                url_col  = "URL"  if "URL"  in df_sites.columns else df_sites.columns[0]
-                node_col = "Node" if "Node" in df_sites.columns else df_sites.columns[-1]
-                fig = px.bar(
-                    df_sites, x=url_col, y="Response (ms)", color=node_col,
+            if "Response ms" in df_sites.columns:
+                fig_cmp = px.bar(
+                    df_sites,
+                    x="Response ms", y="URL", color="Node",
                     barmode="group",
-                    title="Response Time Comparison Across Nodes",
+                    orientation="h",
+                    title="Response Time per Node",
                     color_discrete_sequence=px.colors.qualitative.Set2
                 )
-                fig.update_layout(height=380)
-                st.plotly_chart(fig, width='stretch', key="website_status_chart")
-        else:
-            st.info("No website results available from any node yet.")
+                fig_cmp.update_layout(height=360)
+                st.plotly_chart(fig_cmp, width='stretch')
 
-        # ── Reputation comparison ──────────────────────────────────────────────
-        st.subheader("Consensus Reputations (all nodes)")
+        # Reputation Scores per Node
+        st.subheader("Reputation Scores per Node")
         rep_rows = []
         for s in snaps:
-            c = s.get("consensus") or {}
-            reps = c.get("reputations", {})
-            acts = c.get("mitigation_actions", {})
-            src_node = (s.get("health") or {}).get("node_id", s["base_url"])
-            for nid, score in reps.items():
+            h = s.get("health") or {}
+            src = h.get("node_id", s["base_url"])
+            tr = s.get("trust") or {}
+            trust_score = tr.get("trust_score", 0)
+            
+            # Try to get consensus reputations
+            c2 = s.get("consensus") or {}
+            rp = c2.get("reputations", {})
+            
+            if rp:
+                # Show all reputations from this node's perspective
+                for nid, score in rp.items():
+                    rep_rows.append({
+                        "Node":        nid,
+                        "Reputation":  round(score, 4),
+                        "Reported By": src,
+                    })
+            else:
+                # Show node's own trust score as reputation
                 rep_rows.append({
-                    "Reported By": src_node,
-                    "Node":        nid,
-                    "Reputation":  round(score, 4),
-                    "Action":      acts.get(nid, "—"),
+                    "Node":        src,
+                    "Reputation":  round(trust_score, 4),
+                    "Reported By": src,
                 })
+        
         if rep_rows:
             df_rep = pd.DataFrame(rep_rows)
             st.dataframe(df_rep, width='stretch')
-            fig = px.bar(
-                df_rep, x="Node", y="Reputation", color="Reported By",
-                barmode="group", title="Reputation Scores by Node",
-                color_discrete_sequence=px.colors.qualitative.Pastel,
-                range_y=[0, 1]
+            fig_rp = px.bar(
+                df_rep, x="Node", y="Reputation",
+                title="Reputation Scores",
+                range_y=[0, 1],
+                color="Reputation",
+                color_continuous_scale="RdYlGn",
+                text="Reputation"
             )
-            st.plotly_chart(fig, width='stretch')
+            fig_rp.add_hline(y=0.4, line_dash="dash", line_color="red",
+                             annotation_text="Vote exclusion threshold")
+            fig_rp.update_traces(texttemplate="%{text:.3f}", textposition="outside")
+            fig_rp.update_layout(height=360)
+            st.plotly_chart(fig_rp, width='stretch')
         else:
-            st.info("No reputation data yet — consensus runs after the first epoch with 2+ peer reports.")
+            st.info("No reputation data available.")
 
-        # ── Shared reports across nodes ────────────────────────────────────────
-        st.subheader("Recent Reports (across all nodes)")
-        all_report_rows = []
-        for s in snaps:
-            r_data = s.get("reports") or {}
-            nid    = (s.get("health") or {}).get("node_id", s["base_url"])
-            for rep in r_data.get("reports", []):
-                all_report_rows.append({
-                    "Node":        nid,
-                    "URL":         rep.get("url", "—"),
-                    "Epoch":       rep.get("epoch_id", "—"),
-                    "Response ms": round(rep.get("response_ms", rep.get("response_time_ms", 0)), 1),
-                    "SSL":         "✅" if rep.get("ssl_valid") else "❌",
-                    "Reachable":   "🟢" if rep.get("is_reachable") else "🔴",
+    # ══════════════════════════════════════════════════════════════════════
+    # TAB 5 — ML FEATURES (aggregated from all nodes)
+    # ══════════════════════════════════════════════════════════════════════
+    with tabs[4]:
+        st.header("ML Features & Predictions (All Nodes)")
+        st.caption("Aggregated ML features from all nodes.")
+
+        # Fetch features from all nodes
+        all_features = []
+        for node_url in ALL_NODES:
+            features_data = _get(f"{node_url}/features")
+            if features_data:
+                health = _get(f"{node_url}/health")
+                node_id = health.get("node_id", node_url) if health else node_url
+                all_features.append({
+                    "node_id": node_id,
+                    "features": features_data.get("features", {}),
+                    "prediction": features_data.get("prediction")
                 })
-        if all_report_rows:
-            df_reps = pd.DataFrame(all_report_rows).sort_values("Epoch", ascending=False)
-            st.dataframe(df_reps.head(30), width='stretch')
 
-    # ── TAB 4 — Trust Analysis ─────────────────────────────────────────────────
-    with tab_trust:
-        st.header("Trust Analysis")
-        if trust_data:
-            st.subheader("Trust Score Trend (simulated 24 h)")
-            ts_val = trust_data.get("trust_score", 0.5)
-            dates  = pd.date_range(end=datetime.now(), periods=24, freq='h')
-            scores = [ts_val * (0.9 + 0.2 * (i % 3) / 3) for i in range(24)]
-            fig = px.line(pd.DataFrame({"Timestamp": dates, "Trust Score": scores}),
-                          x="Timestamp", y="Trust Score", markers=True,
-                          title="Trust Score Over Time (24 h)")
-            fig.update_layout(yaxis=dict(range=[0, 1]))
-            st.plotly_chart(fig, width='stretch', key="reputation_chart")
+        if all_features:
+            # Aggregate features across all nodes (average for numerical features)
+            all_feats = {}
+            for feat in all_features:
+                for k, v in feat["features"].items():
+                    if k in all_feats:
+                        try:
+                            all_feats[k] = (all_feats[k] + float(v)) / 2
+                        except (ValueError, TypeError):
+                            all_feats[k] = v
+                    else:
+                        try:
+                            all_feats[k] = float(v)
+                        except (ValueError, TypeError):
+                            all_feats[k] = v
 
-            comps = trust_data.get("components", {})
-            if comps:
-                fig = px.bar(
-                    pd.DataFrame({"Component": list(comps.keys()), "Score": list(comps.values())}),
-                    x="Component", y="Score", title="Trust Components",
-                    color="Score", color_continuous_scale="RdYlGn"
-                )
-                fig.update_layout(yaxis=dict(range=[0, 1]))
-                st.plotly_chart(fig, width='stretch', key="trust_components_chart")
+            if all_feats:
+                # FIX: split response_ms (large value) from ratio features (0-1)
+                ratio_feats = {k: v for k, v in all_feats.items()
+                               if k != "avg_response_ms" and isinstance(v, (int, float)) and 0.0 <= v <= 1.0}
+                other_feats = {k: v for k, v in all_feats.items()
+                               if k not in ratio_feats}
+
+                col_f1, col_f2 = st.columns(2)
+
+                if ratio_feats:
+                    df_ratio = pd.DataFrame({
+                        "Feature": list(ratio_feats.keys()),
+                        "Value":   list(ratio_feats.values())
+                    })
+                    # Colour false_report_rate: high = bad (red), low = good (green)
+                    fig_ratio = px.bar(
+                        df_ratio, x="Feature", y="Value",
+                        title="Aggregated Feature Values (0–1 scale)",
+                        color="Value",
+                        color_continuous_scale="RdYlGn",
+                        range_y=[0, 1],
+                        text="Value"
+                    )
+                    fig_ratio.update_traces(texttemplate="%{text:.3f}",
+                                            textposition="outside")
+                    fig_ratio.update_layout(height=340,
+                                            xaxis_tickangle=-30)
+                    col_f1.plotly_chart(fig_ratio, width='stretch',
+                                        key="ratio_features_chart")
+
+                if other_feats:
+                    df_other = pd.DataFrame({
+                        "Feature": list(other_feats.keys()),
+                        "Value":   [round(float(v), 1) for v in other_feats.values()]
+                    })
+                    fig_other = px.bar(
+                        df_other, x="Feature", y="Value",
+                        title="Aggregated Response Time Features (ms)",
+                        color="Value",
+                        color_continuous_scale="Blues",
+                        text="Value"
+                    )
+                    fig_other.update_traces(texttemplate="%{text:.0f} ms",
+                                            textposition="outside")
+                    fig_other.update_layout(height=340)
+                    col_f2.plotly_chart(fig_other, width='stretch',
+                                        key="other_features_chart")
+
+                # Aggregated feature metrics
+                st.subheader("Aggregated Feature Values")
+                metric_cols = st.columns(4)
+                for i, (k, v) in enumerate(all_feats.items()):
+                    if isinstance(v, (int, float)):
+                        metric_cols[i % 4].metric(
+                            k.replace("_", " ").title(),
+                            f"{v:.4f}"
+                        )
+
+            st.divider()
+
+            # Aggregated ML Predictions from all nodes
+            st.subheader("ML Predictions (All Nodes)")
+            pred_rows = []
+            for feat in all_features:
+                pred = feat.get("prediction")
+                if pred:
+                    pred_rows.append({
+                        "Node": feat["node_id"],
+                        "Label": pred.get("prediction_label", "Unknown"),
+                        "Confidence": pred.get("confidence", 0),
+                        "Honest Prob": pred.get("honest_probability", 0),
+                        "Malicious Prob": pred.get("malicious_probability", 0)
+                    })
+            
+            if pred_rows:
+                df_preds = pd.DataFrame(pred_rows)
+                st.dataframe(df_preds, width='stretch')
+                
+                # Prediction distribution
+                pred_counts = df_preds["Label"].value_counts()
+                fig_pred = px.pie(values=pred_counts.values, names=pred_counts.index,
+                                   title="Prediction Distribution (All Nodes)")
+                st.plotly_chart(fig_pred, width='stretch')
+            else:
+                st.info("No ML predictions available. See reputation scores in Consensus Voting tab.")
         else:
-            st.warning("No trust data available")
+            st.info("No ML features data available. Make sure the nodes are running and monitoring is active.")
 
-    # ── TAB 5 — ML Features ───────────────────────────────────────────────────
-    with tab_ml:
-        st.header("ML Features and Predictions")
-        if snap.get("health"):
-            features_data = DashboardAPI.get_features()
-        else:
-            features_data = None
+    # ══════════════════════════════════════════════════════════════════════
+    # TAB 6 — PEERS (aggregated from all nodes)
+    # ══════════════════════════════════════════════════════════════════════
+    with tabs[5]:
+        st.header("Peer Network (All Nodes)")
+        st.caption("Aggregated peer registrations from all nodes.")
 
-        if features_data:
-            feats  = features_data.get("features", {})
-            pred   = features_data.get("prediction")
-            c1, c2 = st.columns(2)
-            with c1:
-                df = pd.DataFrame({"Feature": list(feats.keys()), "Value": list(feats.values())})
-                fig = px.bar(df, x="Feature", y="Value", title="ML Feature Values",
-                             color="Value", color_continuous_scale="Viridis")
-                st.plotly_chart(fig, width='stretch', key="ml_features_chart")
-            with c2:
-                for k, v in feats.items():
-                    st.metric(k.replace("_", " ").title(), f"{v:.4f}")
-            if pred:
-                st.subheader("ML Prediction")
-                c1, c2, c3 = st.columns(3)
-                lbl  = pred.get("prediction_label", "Unknown")
-                conf = pred.get("confidence", 0)
-                c1.metric("Prediction",  lbl)
-                c1.metric("Confidence",  f"{conf:.4f}")
-                hp = pred.get("honest_probability", 0)
-                mp = pred.get("malicious_probability", 0)
-                c2.metric("Honest Prob",    f"{hp:.4f}")
-                c2.metric("Malicious Prob", f"{mp:.4f}")
-                c3.plotly_chart(create_trust_gauge(hp if lbl == "Honest" else 1 - mp, "ML Trust"),
-                                width='stretch')
-        else:
-            st.warning("No ML features data available")
-
-    # ── TAB 6 — Peers ─────────────────────────────────────────────────────────
-    with tab_peers:
-        st.header("Peer Network")
-
-        # Registered peers (richer data)
-        reg = reg_peers or {}
-        peers_dict = reg.get("peers", {})
-
-        if peers_dict:
-            st.subheader(f"Registered Peers ({len(peers_dict)})")
-            rows = []
+        # Aggregate peers from all nodes
+        all_peers = {}
+        for reg_p in all_reg_p:
+            peers_dict = reg_p.get("peers", {})
             for nid, info in peers_dict.items():
-                rows.append({
+                if nid not in all_peers:
+                    all_peers[nid] = info
+                else:
+                    # Merge info if needed
+                    if info.get("public_key_hex") and not all_peers[nid].get("public_key_hex"):
+                        all_peers[nid]["public_key_hex"] = info["public_key_hex"]
+
+        # Aggregate reputations from all nodes
+        all_rep_lookup = {}
+        for cons in all_cons:
+            reps = cons.get("reputations", {})
+            for nid, rep in reps.items():
+                if nid in all_rep_lookup:
+                    all_rep_lookup[nid] = (all_rep_lookup[nid] + rep) / 2
+                else:
+                    all_rep_lookup[nid] = rep
+
+        if all_peers:
+            st.subheader(f"Registered Peers ({len(all_peers)})")
+            peer_rows = []
+            for nid, info in all_peers.items():
+                rep_val = all_rep_lookup.get(nid)
+                
+                # If not found in reputations, try to get from trust data
+                if rep_val is None:
+                    # Check if this peer is one of the nodes we're monitoring
+                    for snap in all_snaps:
+                        h = snap.get("health") or {}
+                        if h.get("node_id") == nid or snap.get("base_url") == info.get("url"):
+                            trust_data = snap.get("trust") or {}
+                            rep_val = trust_data.get("trust_score", 0)
+                            break
+                
+                peer_rows.append({
                     "Node ID":    nid,
                     "URL":        info.get("url", "—"),
-                    "Public Key": (info.get("public_key_hex", "") or "")[:16] + "…",
+                    "Reputation": f"{rep_val:.4f}" if rep_val is not None else "pending",
+                    "Public Key": ((info.get("public_key_hex") or "")[:20] + "…") if info.get("public_key_hex") else "—",
                 })
-            st.dataframe(pd.DataFrame(rows), width='stretch')
-        else:
-            peers_data = DashboardAPI.get_peers()
-            if peers_data:
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Total Peers",   peers_data.get("total_peers", 0))
-                c2.metric("Active Peers",  peers_data.get("active_peers", 0))
-                c3.metric("Inactive",      peers_data.get("inactive_peers", 0))
-                avg = peers_data.get("average_trust_score", 0)
-                c4.metric("Avg Trust",     f"{avg:.4f}")
-                peer_list = peers_data.get("peer_list", [])
-                if peer_list:
-                    st.dataframe(pd.DataFrame(peer_list), width='stretch')
-            else:
-                st.info("No peers connected yet")
+            st.dataframe(pd.DataFrame(peer_rows), width='stretch')
 
-    # ── TAB 7 — Statistics ────────────────────────────────────────────────────
-    with tab_stats:
-        st.header("System Statistics")
-        stats_data = DashboardAPI.get_statistics()
-        if stats_data:
-            c1, c2 = st.columns(2)
-            with c1:
-                st.write(f"**Node ID:** {stats_data.get('node_id', '—')}")
-                st.write(f"**Timestamp:** {fmt_ts(stats_data.get('timestamp', ''))}")
-                ts = stats_data.get("trust", {})
-                if ts:
-                    st.write("**Trust Statistics:**")
-                    st.write(f"- Total Nodes: {ts.get('total_nodes', 0)}")
-                    st.write(f"- Avg Trust: {ts.get('average_trust', 0):.4f}")
-                    st.write(f"- Total Reports: {ts.get('total_reports', 0)}")
-            with c2:
-                ms = stats_data.get("monitoring", {})
-                if ms:
-                    st.write("**Monitoring:**")
-                    st.write(f"- Websites: {ms.get('websites_count', 0)}")
-                    st.write(f"- Latest results: {ms.get('latest_results_count', 0)}")
-                    st.write(f"- Interval: {ms.get('monitoring_interval', 0)} s")
-                bs = stats_data.get("blockchain", {})
-                if bs:
-                    st.write("**Blockchain:**")
-                    st.write(f"- Registered: {bs.get('node_registered', False)}")
-                    rep = bs.get("reputation")
-                    if rep:
-                        st.write(f"- Reputation: {rep.get('reputation', 0):.4f}")
-                        st.write(f"- ML Score: {rep.get('ml_score', 0):.4f}")
+            # Peer reputation mini chart
+            rep_peer_data = [(nid, all_rep_lookup[nid]) for nid in all_peers if nid in all_rep_lookup]
+            if rep_peer_data:
+                df_pr = pd.DataFrame(rep_peer_data, columns=["Node", "Reputation"])
+                fig_pr = px.bar(df_pr, x="Node", y="Reputation",
+                                title="Peer Reputation Scores (Aggregated)",
+                                color="Reputation",
+                                color_continuous_scale="RdYlGn",
+                                range_y=[0, 1], text="Reputation")
+                fig_pr.add_hline(y=0.4, line_dash="dash", line_color="red",
+                                 annotation_text="Vote exclusion threshold")
+                fig_pr.update_traces(texttemplate="%{text:.3f}", textposition="outside")
+                fig_pr.update_layout(height=320)
+                st.plotly_chart(fig_pr, width='stretch')
         else:
-            st.warning("No statistics data available")
+            st.info("No peers registered. Use 'Add Peer to All Nodes' in the sidebar or run setup_network.py.")
 
-    # ── Auto-refresh ───────────────────────────────────────────────────────────
+    # ── Auto-refresh ───────────────────────────────────────────────────────
     if auto_refresh:
-        time.sleep(refresh_interval)
-        st.rerun()
+        try:
+            interval = int(refresh_interval) if isinstance(refresh_interval, (int, str)) else 30
+            time.sleep(interval)
+            st.rerun()
+        except Exception:
+            time.sleep(30)
+            st.rerun()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,77 @@
+{
+  "simulation_config": {
+    "node_range": "1-46",
+    "step_size": 5,
+    "total_tests": 10
+  },
+  "performance_summary": {
+    "min_latency_ms": 348.41,
+    "max_latency_ms": 4463.74,
+    "min_throughput_reqs_per_sec": 0.23,
+    "max_throughput_reqs_per_sec": 19.67,
+    "latency_improvement_percent": 92.1,
+    "throughput_improvement_percent": 8552.9
+  },
+  "detailed_results": [
+    {
+      "node_count": 1,
+      "avg_latency_ms": 4397.97,
+      "throughput_reqs_per_sec": 0.23,
+      "latency_std_dev": 0.71
+    },
+    {
+      "node_count": 6,
+      "avg_latency_ms": 4392.49,
+      "throughput_reqs_per_sec": 1.16,
+      "latency_std_dev": 0.71
+    },
+    {
+      "node_count": 11,
+      "avg_latency_ms": 4363.19,
+      "throughput_reqs_per_sec": 1.83,
+      "latency_std_dev": 0.71
+    },
+    {
+      "node_count": 16,
+      "avg_latency_ms": 4463.74,
+      "throughput_reqs_per_sec": 3.58,
+      "latency_std_dev": 0.71
+    },
+    {
+      "node_count": 21,
+      "avg_latency_ms": 375.27,
+      "throughput_reqs_per_sec": 8.94,
+      "latency_std_dev": 0.71
+    },
+    {
+      "node_count": 26,
+      "avg_latency_ms": 443.74,
+      "throughput_reqs_per_sec": 11.14,
+      "latency_std_dev": 0.71
+    },
+    {
+      "node_count": 31,
+      "avg_latency_ms": 384.62,
+      "throughput_reqs_per_sec": 13.18,
+      "latency_std_dev": 0.71
+    },
+    {
+      "node_count": 36,
+      "avg_latency_ms": 407.14,
+      "throughput_reqs_per_sec": 15.3,
+      "latency_std_dev": 0.71
+    },
+    {
+      "node_count": 41,
+      "avg_latency_ms": 365.32,
+      "throughput_reqs_per_sec": 17.51,
+      "latency_std_dev": 0.71
+    },
+    {
+      "node_count": 46,
+      "avg_latency_ms": 348.41,
+      "throughput_reqs_per_sec": 19.67,
+      "latency_std_dev": 0.71
+    }
+  ]
+}

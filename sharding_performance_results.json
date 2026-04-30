@@ -1,0 +1,71 @@
+{
+  "test_timestamp": "2026-04-28 19:28:45",
+  "test_urls": [
+    "https://httpbin.org/status/200",
+    "https://httpbin.org/status/201",
+    "https://httpbin.org/status/202",
+    "https://httpbin.org/delay/1",
+    "https://jsonplaceholder.typicode.com/posts/1",
+    "https://jsonplaceholder.typicode.com/posts/2"
+  ],
+  "results": {
+    "sharded": [
+      {
+        "node_count": 2,
+        "total_requests": 6,
+        "successful_requests": 4,
+        "throughput": 0.43715041217382955,
+        "avg_response_time": 2757.1414709091187,
+        "total_time": 9.150168657302856,
+        "success_rate": 0.6666666666666666
+      },
+      {
+        "node_count": 4,
+        "total_requests": 6,
+        "successful_requests": 4,
+        "throughput": 0.7727503820406224,
+        "avg_response_time": 2903.726816177368,
+        "total_time": 5.176315784454346,
+        "success_rate": 0.6666666666666666
+      },
+      {
+        "node_count": 6,
+        "total_requests": 6,
+        "successful_requests": 4,
+        "throughput": 0.8651995508054395,
+        "avg_response_time": 3459.42223072052,
+        "total_time": 4.623210906982422,
+        "success_rate": 0.6666666666666666
+      }
+    ],
+    "non_sharded": [
+      {
+        "node_count": 2,
+        "total_requests": 6,
+        "successful_requests": 4,
+        "throughput": 0.4704447197417116,
+        "avg_response_time": 2477.0801067352295,
+        "total_time": 8.502593040466309,
+        "success_rate": 0.6666666666666666
+      },
+      {
+        "node_count": 4,
+        "total_requests": 4,
+        "successful_requests": 2,
+        "throughput": 0.4519689071377894,
+        "avg_response_time": 3981.235980987549,
+        "total_time": 4.425083160400391,
+        "success_rate": 0.5
+      },
+      {
+        "node_count": 6,
+        "total_requests": 6,
+        "successful_requests": 4,
+        "throughput": 0.696438442143261,
+        "avg_response_time": 3812.783181667328,
+        "total_time": 5.743508338928223,
+        "success_rate": 0.6666666666666666
+      }
+    ]
+  }
+}
